@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 
 export async function POST() {
-  const response = NextResponse.json({ success: true });
+  const response = NextResponse.redirect(
+    new URL('/login', process.env.NEXT_PUBLIC_APP_URL)
+  );
 
   response.cookies.set('enextract_token', '', {
     httpOnly: true,
