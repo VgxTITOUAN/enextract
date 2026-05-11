@@ -4,7 +4,7 @@ import { verifyToken } from '@/lib/auth';
 import LogoutButton from '@/components/LogoutButton';
 
 const navItems = [
-  { href: '/dashboard',      label: 'Extraction',     icon: '📝' },
+  { href: '/extraction', label: 'Extraction', icon: '📝' },
   { href: '/planification',  label: 'Planification',  icon: '📅' },
   { href: '/telechargement', label: 'Téléchargement', icon: '⬇️' },
 ];
