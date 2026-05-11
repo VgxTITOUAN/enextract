@@ -3,10 +3,9 @@ import { verifyToken } from '@/lib/auth';
 
 const PUBLIC_ROUTES = ['/login'];
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Laisser passer les routes publiques et API
   if (
     PUBLIC_ROUTES.includes(pathname) ||
     pathname.startsWith('/api/') ||
@@ -16,7 +15,6 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // Vérifier le token
   const token = req.cookies.get('enextract_token')?.value;
 
   if (!token) {
