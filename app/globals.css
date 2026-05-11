@@ -1,3 +1,7 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --color-eness: #6bb100;
+  --color-eness-dark: #4a7c00;
+  --color-eness-light: #f0f9e8;
+}
