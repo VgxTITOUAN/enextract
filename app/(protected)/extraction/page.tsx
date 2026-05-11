@@ -32,8 +32,47 @@ export default function ExtractionPage() {
   async function handleSubmit() {
     setLoading(true);
     setShowConfirm(false);
-    // TODO : appel API extraction
-    setTimeout(() => setLoading(false), 2000);
+  
+    try {
+      const res = await fetch('/api/extraction', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nb:     parseInt(nb),
+          date:   date || null,
+          mode,
+          heure,
+          rythme: rythme || null,
+        }),
+      });
+  
+      const data = await res.json();
+  
+      if (!res.ok) {
+        alert(`Erreur : ${data.error}`);
+        return;
+      }
+  
+      if (data.status === 'partial') {
+        alert(`Extraction partielle — ${data.nbSortie} prospects sortis sur ${nb} demandés. ${data.manquant} manquant(s).`);
+      } else if (data.status === 'done') {
+        alert(`✓ Extraction réussie — ${data.nbSortie} prospects sortis, ${data.nbMaj} champs Sellsy mis à jour.`);
+      } else {
+        alert('Aucun prospect trouvé correspondant aux critères.');
+      }
+  
+      // Réinitialiser le formulaire
+      setNb('');
+      setDate('');
+      setHeure('08:00');
+      setRythme('');
+      setMode('immediate');
+  
+    } catch {
+      alert('Erreur réseau. Réessayez.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
