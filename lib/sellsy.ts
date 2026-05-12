@@ -216,9 +216,15 @@ export async function getCompanyAddress(addressId: number): Promise<string | nul
     { headers: { Authorization: `Bearer ${token}` } }
   );
 
-  if (!res.ok) return null;
+  console.log(`Adresse ${addressId} - status: ${res.status}`);
+
+  if (!res.ok) {
+    const err = await res.text();
+    console.log(`Adresse ${addressId} - erreur: ${err}`);
+    return null;
+  }
 
   const data = await res.json();
-  console.log('Structure adresse:', JSON.stringify(data, null, 2)); // ← log
+  console.log(`Adresse ${addressId} - data:`, JSON.stringify(data));
   return data.postal_code ?? null;
 }
