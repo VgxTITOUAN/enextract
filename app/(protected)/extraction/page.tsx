@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Topbar from '@/components/Topbar';
 
 type Mode = 'immediate' | 'planifiee' | 'recurrente';
@@ -13,6 +14,7 @@ export default function ExtractionPage() {
   const [rythme, setRythme] = useState('');
   const [loading, setLoading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const router = useRouter();
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -55,28 +57,14 @@ export default function ExtractionPage() {
   
       if (data.scheduled) {
         alert(data.message);
-        setNb('');
-        setDate('');
-        setHeure('08:00');
-        setRythme('');
-        setMode('immediate');
-        return;
-      }
-
-      if (data.status === 'partial') {
+      } else if (data.status === 'partial') {
         alert(`Extraction partielle — ${data.nbSortie} prospects sortis sur ${nb} demandés. ${data.manquant} manquant(s).`);
+        router.push('/telechargement');
       } else if (data.status === 'done') {
-        alert(`✓ Extraction réussie — ${data.nbSortie} prospects sortis, ${data.nbMaj} champs Sellsy mis à jour.`);
+        router.push('/telechargement');
       } else {
         alert('Aucun prospect trouvé correspondant aux critères.');
       }
-  
-      // Réinitialiser le formulaire
-      setNb('');
-      setDate('');
-      setHeure('08:00');
-      setRythme('');
-      setMode('immediate');
   
     } catch {
       alert('Erreur réseau. Réessayez.');
