@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth';
 import pool from '@/lib/db';
+import { getProspects, updateProspect } from '@/lib/sellsy';
 
 // ─────────────────────────────────────────────────────────────
 //  MOCK MODE — passer à false quand Sellsy est connecté
@@ -311,13 +312,13 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ── MODE RÉEL (Sellsy) ─────────────────────────────────────
-    const sellsyToken = await getSellsyToken(user.id);
-    let collected: any[] = [];
+    // ── MODE RÉEL ─────────────────────────────────────────────────
+    const collected: any[] = [];
     let page = 0;
 
+    // Batch 1
     while (collected.length < nb) {
-      const raw = await fetchProspects(sellsyToken, {}, 100, page * 100);
+      const raw = await getProspects(100, page * 100);
       if (!raw.length) break;
       const filtered = applyBatch1(raw, dateSortie).filter(p => !collected.find(c => c.id === p.id));
       collected.push(...filtered);
@@ -325,10 +326,11 @@ export async function POST(req: NextRequest) {
       if (raw.length < 100) break;
     }
 
+    // Batch 2
     if (collected.length < nb) {
       page = 0;
       while (collected.length < nb) {
-        const raw = await fetchProspects(sellsyToken, {}, 100, page * 100);
+        const raw = await getProspects(100, page * 100);
         if (!raw.length) break;
         const filtered = applyBatch2(raw).filter(p => !collected.find(c => c.id === p.id)).slice(0, Math.min(10, nb - collected.length));
         collected.push(...filtered);
@@ -337,10 +339,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Batch 3
     if (collected.length < nb) {
       page = 0;
       while (collected.length < nb) {
-        const raw = await fetchProspects(sellsyToken, {}, 100, page * 100);
+        const raw = await getProspects(100, page * 100);
         if (!raw.length) break;
         const filtered = applyBatch3(raw).filter(p => !collected.find(c => c.id === p.id)).slice(0, Math.min(10, nb - collected.length));
         collected.push(...filtered);
@@ -349,10 +352,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Batch 4
     if (collected.length < nb) {
       page = 0;
       while (collected.length < nb) {
-        const raw = await fetchProspects(sellsyToken, {}, 100, page * 100);
+        const raw = await getProspects(100, page * 100);
         if (!raw.length) break;
         const filtered = applyBatch4(raw).filter(p => !collected.find(c => c.id === p.id)).slice(0, nb - collected.length);
         collected.push(...filtered);
@@ -361,17 +365,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    collected = collected.slice(0, nb);
-
-    // MàJ Sellsy
+    // MàJ Sellsy avec délai entre chaque appel
     const sellsyUpdates: boolean[] = [];
     for (const prospect of collected) {
-      const patchRes = await fetch(`${SELLSY_API}/prospects/${prospect.id}`, {
-        method:  'PUT',
-        headers: { Authorization: `Bearer ${sellsyToken}`, 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ [CF_DATE_MAILING]: toDateStr(new Date()) }),
-      });
-      sellsyUpdates.push(patchRes.ok);
+      await new Promise(r => setTimeout(r, 200)); // 200ms entre chaque appel
+      const ok = await updateProspect(String(prospect.id), { [CF_DATE_MAILING]: toDateStr(new Date()) });
+      sellsyUpdates.push(ok);
     }
 
     const { extractionId, nbMaj, status } = await saveExtraction(
