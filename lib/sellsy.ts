@@ -88,7 +88,7 @@ export async function getProspects(limit = 100, offset = 0): Promise<any[]> {
 export async function updateProspect(id: string, fields: Record<string, any>): Promise<boolean> {
   const token = await getSellsyToken();
 
-  const res = await fetch(`${SELLSY_API}/prospects/${id}`, {
+  const res = await fetch(`${SELLSY_API}/companies/${id}`, {
     method:  'PUT',
     headers: {
       Authorization:  `Bearer ${token}`,

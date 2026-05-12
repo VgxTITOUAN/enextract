@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth';
 import pool from '@/lib/db';
-import { getProspects, updateProspect } from '@/lib/sellsy';
+import { getProspects, getCompanyCustomFields, getCompanyAddress, updateProspect } from '@/lib/sellsy';
 
 // ─────────────────────────────────────────────────────────────
 //  MOCK MODE — passer à false quand Sellsy est connecté
@@ -13,7 +13,6 @@ const DRY_RUN   = true;  // ← true = pas de modification dans Sellsy
 // ─────────────────────────────────────────────────────────────
 //  CONSTANTES — Vrais codes de champs custom Sellsy confirmés
 // ─────────────────────────────────────────────────────────────
-const SELLSY_API            = 'https://api.sellsy.com/v2';
 const CF_DATE_MAILING       = 'datemailling';     // ✅ confirmé
 const CF_DATE_COMMANDE_NOM  = 'datecommandendd';  // ✅ confirmé
 const CF_DATE_FIN_CONTRAT   = 'date-fin-contrat'; // ✅ confirmé
@@ -64,44 +63,16 @@ function isUnknown(val: any): boolean {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  RÉCUPÉRATION TOKEN SELLSY
+//  ENRICHISSEMENT — champs custom + code postal
 // ─────────────────────────────────────────────────────────────
-async function getSellsyToken(userId: number): Promise<string> {
-  const [rows]: any = await pool.execute(
-    'SELECT sellsy_token, sellsy_token_exp FROM users WHERE id = ?',
-    [userId]
-  );
-  const user = rows[0];
-
-  if (!user?.sellsy_token) {
-    throw new Error('Compte Sellsy non connecté. Veuillez vous connecter à Sellsy.');
-  }
-
-  if (new Date(user.sellsy_token_exp) <= new Date()) {
-    throw new Error('Token Sellsy expiré. Veuillez vous reconnecter à Sellsy.');
-  }
-
-  return user.sellsy_token;
-}
-
-// ─────────────────────────────────────────────────────────────
-//  APPEL API SELLSY
-// ─────────────────────────────────────────────────────────────
-async function fetchProspects(token: string, params: Record<string, string> = {}, limit = 100, offset = 0): Promise<any[]> {
-  const query = new URLSearchParams({
-    limit:  String(limit),
-    offset: String(offset),
-    ...params,
-  });
-
-  const res = await fetch(`${SELLSY_API}/prospects?${query}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  if (!res.ok) throw new Error(`Sellsy API error ${res.status}`);
-
-  const data = await res.json();
-  return data.data ?? [];
+async function enrichProspect(prospect: any): Promise<any> {
+  const [customFields, zipCode] = await Promise.all([
+    getCompanyCustomFields(prospect.id),
+    prospect.invoicing_address_id
+      ? getCompanyAddress(prospect.invoicing_address_id)
+      : Promise.resolve(null),
+  ]);
+  return { ...prospect, ...customFields, zip_code: zipCode };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -321,7 +292,8 @@ export async function POST(req: NextRequest) {
     while (collected.length < nb) {
       const raw = await getProspects(100, page * 100);
       if (!raw.length) break;
-      const filtered = applyBatch1(raw, dateSortie).filter(p => !collected.find(c => c.id === p.id));
+      const enriched = await Promise.all(raw.map(enrichProspect));
+      const filtered = applyBatch1(enriched, dateSortie).filter(p => !collected.find(c => c.id === p.id));
       collected.push(...filtered);
       page++;
       if (raw.length < 100) break;
@@ -333,7 +305,8 @@ export async function POST(req: NextRequest) {
       while (collected.length < nb) {
         const raw = await getProspects(100, page * 100);
         if (!raw.length) break;
-        const filtered = applyBatch2(raw).filter(p => !collected.find(c => c.id === p.id)).slice(0, Math.min(10, nb - collected.length));
+        const enriched = await Promise.all(raw.map(enrichProspect));
+        const filtered = applyBatch2(enriched).filter(p => !collected.find(c => c.id === p.id)).slice(0, Math.min(10, nb - collected.length));
         collected.push(...filtered);
         if (filtered.length >= 10 || raw.length < 100) break;
         page++;
@@ -346,7 +319,8 @@ export async function POST(req: NextRequest) {
       while (collected.length < nb) {
         const raw = await getProspects(100, page * 100);
         if (!raw.length) break;
-        const filtered = applyBatch3(raw).filter(p => !collected.find(c => c.id === p.id)).slice(0, Math.min(10, nb - collected.length));
+        const enriched = await Promise.all(raw.map(enrichProspect));
+        const filtered = applyBatch3(enriched).filter(p => !collected.find(c => c.id === p.id)).slice(0, Math.min(10, nb - collected.length));
         collected.push(...filtered);
         if (filtered.length >= 10 || raw.length < 100) break;
         page++;
@@ -359,7 +333,8 @@ export async function POST(req: NextRequest) {
       while (collected.length < nb) {
         const raw = await getProspects(100, page * 100);
         if (!raw.length) break;
-        const filtered = applyBatch4(raw).filter(p => !collected.find(c => c.id === p.id)).slice(0, nb - collected.length);
+        const enriched = await Promise.all(raw.map(enrichProspect));
+        const filtered = applyBatch4(enriched).filter(p => !collected.find(c => c.id === p.id)).slice(0, nb - collected.length);
         collected.push(...filtered);
         if (raw.length < 100) break;
         page++;
