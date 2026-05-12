@@ -219,5 +219,6 @@ export async function getCompanyAddress(addressId: number): Promise<string | nul
   if (!res.ok) return null;
 
   const data = await res.json();
+  console.log('Structure adresse:', JSON.stringify(data, null, 2)); // ← log
   return data.postal_code ?? null;
 }
