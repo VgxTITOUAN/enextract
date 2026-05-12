@@ -232,7 +232,7 @@ export async function POST(req: NextRequest) {
     const user = verifyToken(token);
     if (!user) return NextResponse.json({ error: 'Non autorisé.' }, { status: 401 });
 
-    const { nb, date, mode, heure } = await req.json();
+    const { nb, date, mode, heure, rythme } = await req.json();
 
     if (!nb || nb < 1 || nb > 500) {
       return NextResponse.json({ error: 'Nb prospects invalide.' }, { status: 400 });
@@ -280,6 +280,22 @@ export async function POST(req: NextRequest) {
       const { extractionId, nbMaj, status } = await saveExtraction(
         user.id, mode, dateLancement, nb, collected, sellsyUpdates
       );
+
+      // Enregistrer le schedule si planifiée ou récurrente
+      if (mode === 'planifiee' || mode === 'recurrente') {
+        await pool.execute(
+          `INSERT INTO schedules (user_id, type, rythme, date_lancement, heure, nb_prospects, actif)
+           VALUES (?, ?, ?, ?, ?, ?, 1)`,
+          [
+            user.id,
+            mode,
+            rythme ?? null,
+            dateLancement,
+            heure ?? '00:00',
+            nb,
+          ]
+        );
+      }
 
       return NextResponse.json({
         success: true,
