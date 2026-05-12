@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Topbar from '@/components/Topbar';
+import Toast from '@/components/Toast';
+import { useToast } from '@/lib/useToast';
 
 type Mode = 'immediate' | 'planifiee' | 'recurrente';
 
@@ -15,6 +17,7 @@ export default function ExtractionPage() {
   const [loading, setLoading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const router = useRouter();
+  const { toast, showToast, hideToast } = useToast();
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -34,7 +37,7 @@ export default function ExtractionPage() {
   async function handleSubmit() {
     setLoading(true);
     setShowConfirm(false);
-  
+
     try {
       const res = await fetch('/api/extraction', {
         method:  'POST',
@@ -47,27 +50,40 @@ export default function ExtractionPage() {
           rythme: rythme || null,
         }),
       });
-  
+
       const data = await res.json();
-  
+
       if (!res.ok) {
-        alert(`Erreur : ${data.error}`);
+        showToast(data.error || 'Erreur lors de l\'extraction.', 'error');
         return;
       }
-  
+
       if (data.scheduled) {
-        alert(data.message);
-      } else if (data.status === 'partial') {
-        alert(`Extraction partielle — ${data.nbSortie} prospects sortis sur ${nb} demandés. ${data.manquant} manquant(s).`);
-        router.push('/telechargement');
-      } else if (data.status === 'done') {
-        router.push('/telechargement');
-      } else {
-        alert('Aucun prospect trouvé correspondant aux critères.');
+        showToast(data.message, 'info');
+        setNb(''); setDate(''); setHeure('08:00'); setRythme(''); setMode('immediate');
+        return;
       }
-  
+
+      if (data.status === 'error') {
+        showToast('Aucun prospect trouvé correspondant aux critères.', 'warning');
+        return;
+      }
+
+      if (data.status === 'partial') {
+        showToast(
+          `Extraction partielle — ${data.nbSortie} prospects sortis sur ${nb} demandés. ${data.manquant} manquant(s).`,
+          'warning'
+        );
+        setTimeout(() => router.push('/telechargement'), 2000);
+        return;
+      }
+
+      // done
+      showToast(`✓ ${data.nbSortie} prospects extraits — redirection...`, 'success');
+      setTimeout(() => router.push('/telechargement'), 1500);
+
     } catch {
-      alert('Erreur réseau. Réessayez.');
+      showToast('Erreur réseau. Vérifiez votre connexion.', 'error');
     } finally {
       setLoading(false);
     }
@@ -292,6 +308,7 @@ export default function ExtractionPage() {
         )}
 
       </main>
+      <Toast toast={toast} onClose={hideToast} />
     </>
   );
 }
