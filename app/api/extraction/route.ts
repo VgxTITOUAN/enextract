@@ -7,7 +7,8 @@ import { getProspects, updateProspect } from '@/lib/sellsy';
 // ─────────────────────────────────────────────────────────────
 //  MOCK MODE — passer à false quand Sellsy est connecté
 // ─────────────────────────────────────────────────────────────
-const MOCK_MODE = true;
+const MOCK_MODE = false; // ← on passe à false pour utiliser Sellsy
+const DRY_RUN   = true;  // ← true = pas de modification dans Sellsy
 
 // ─────────────────────────────────────────────────────────────
 //  CONSTANTES — À remplacer par les vrais noms de champs Sellsy
@@ -368,6 +369,11 @@ export async function POST(req: NextRequest) {
     // MàJ Sellsy avec délai entre chaque appel
     const sellsyUpdates: boolean[] = [];
     for (const prospect of collected) {
+      if (DRY_RUN) {
+        // Simule un succès sans toucher Sellsy
+        sellsyUpdates.push(true);
+        continue;
+      }
       await new Promise(r => setTimeout(r, 200)); // 200ms entre chaque appel
       const ok = await updateProspect(String(prospect.id), { [CF_DATE_MAILING]: toDateStr(new Date()) });
       sellsyUpdates.push(ok);
