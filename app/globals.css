@@ -5,3 +5,7 @@
   --color-eness-dark: #4a7c00;
   --color-eness-light: #f0f9e8;
 }
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
