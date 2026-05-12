@@ -5,31 +5,48 @@ export async function GET() {
   try {
     const token = await getSellsyToken();
 
-    // Test 1 — récupérer un prospect avec tous ses champs
+    // Test 1 — récupérer un prospect (POST search)
     const res1 = await fetch(
-      'https://api.sellsy.com/v2/companies?limit=1&filters[type]=prospect',
-      { headers: { Authorization: `Bearer ${token}` } }
+      'https://api.sellsy.com/v2/companies/search?limit=1',
+      {
+        method: 'POST',
+        headers: {
+          Authorization:  `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          filters: { type: 'prospect' }
+        }),
+      }
     );
     const data1 = await res1.json();
-
-    // Récupérer l'ID du premier prospect
     const firstId = data1?.data?.[0]?.id;
 
-    // Test 2 — récupérer ce prospect en détail avec ses champs custom
+    // Test 2 — détail sans embed d'abord
     let detail = null;
     if (firstId) {
       const res2 = await fetch(
-        `https://api.sellsy.com/v2/companies/${firstId}?embed[]=custom_fields&embed[]=address`,
+        `https://api.sellsy.com/v2/companies/${firstId}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       detail = await res2.json();
     }
 
+    // Test 3 — custom fields séparément
+    let customFields = null;
+    if (firstId) {
+      const res3 = await fetch(
+        `https://api.sellsy.com/v2/companies/${firstId}/custom-fields`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      customFields = res3.ok ? await res3.json() : `${res3.status} — ${await res3.text()}`;
+    }
+
     return NextResponse.json({
-      success:    true,
-      token_ok:   true,
+      success:      true,
       first_prospect: data1?.data?.[0] ?? null,
       detail,
+      customFields,
     });
 
   } catch (error: any) {
