@@ -53,6 +53,16 @@ export default function ExtractionPage() {
         return;
       }
   
+      if (data.scheduled) {
+        alert(data.message);
+        setNb('');
+        setDate('');
+        setHeure('08:00');
+        setRythme('');
+        setMode('immediate');
+        return;
+      }
+
       if (data.status === 'partial') {
         alert(`Extraction partielle — ${data.nbSortie} prospects sortis sur ${nb} demandés. ${data.manquant} manquant(s).`);
       } else if (data.status === 'done') {

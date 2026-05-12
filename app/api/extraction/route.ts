@@ -245,6 +245,25 @@ export async function POST(req: NextRequest) {
 
     // ── MOCK MODE ──────────────────────────────────────────────
     if (MOCK_MODE) {
+
+      // ── Planifiée ou Récurrente → juste enregistrer le schedule ──
+      if (mode === 'planifiee' || mode === 'recurrente') {
+        await pool.execute(
+          `INSERT INTO schedules (user_id, type, rythme, date_lancement, heure, nb_prospects, actif)
+           VALUES (?, ?, ?, ?, ?, ?, 1)`,
+          [user.id, mode, rythme ?? null, dateLancement, heure ?? '00:00', nb]
+        );
+
+        return NextResponse.json({
+          success: true,
+          scheduled: true,
+          message: mode === 'recurrente'
+            ? 'Récurrence activée — elle se déclenchera automatiquement.'
+            : 'Extraction planifiée — elle se déclenchera à la date prévue.',
+        });
+      }
+
+      // ── Immédiate → extrait maintenant ──
       const mockProspects = generateMockProspects(200);
       let collected: any[] = [];
 
@@ -280,22 +299,6 @@ export async function POST(req: NextRequest) {
       const { extractionId, nbMaj, status } = await saveExtraction(
         user.id, mode, dateLancement, nb, collected, sellsyUpdates
       );
-
-      // Enregistrer le schedule si planifiée ou récurrente
-      if (mode === 'planifiee' || mode === 'recurrente') {
-        await pool.execute(
-          `INSERT INTO schedules (user_id, type, rythme, date_lancement, heure, nb_prospects, actif)
-           VALUES (?, ?, ?, ?, ?, ?, 1)`,
-          [
-            user.id,
-            mode,
-            rythme ?? null,
-            dateLancement,
-            heure ?? '00:00',
-            nb,
-          ]
-        );
-      }
 
       return NextResponse.json({
         success: true,
