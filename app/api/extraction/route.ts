@@ -11,13 +11,13 @@ const MOCK_MODE = false; // ← on passe à false pour utiliser Sellsy
 const DRY_RUN   = true;  // ← true = pas de modification dans Sellsy
 
 // ─────────────────────────────────────────────────────────────
-//  CONSTANTES — À remplacer par les vrais noms de champs Sellsy
+//  CONSTANTES — Vrais codes de champs custom Sellsy confirmés
 // ─────────────────────────────────────────────────────────────
 const SELLSY_API            = 'https://api.sellsy.com/v2';
-const CF_DATE_MAILING       = 'date_mailing';
-const CF_DATE_COMMANDE_NOM  = 'date_commande_nom';
-const CF_DATE_FIN_CONTRAT   = 'date_fin_contrat';
-const CF_DEPARTEMENT        = 'zip_code';
+const CF_DATE_MAILING       = 'datemailling';     // ✅ confirmé
+const CF_DATE_COMMANDE_NOM  = 'datecommandendd';  // ✅ confirmé
+const CF_DATE_FIN_CONTRAT   = 'date-fin-contrat'; // ✅ confirmé
+const CF_DEPARTEMENT        = 'zip_code';         // ⚠️ à confirmer via l'adresse
 
 // ─────────────────────────────────────────────────────────────
 //  DONNÉES MOCK

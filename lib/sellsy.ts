@@ -52,29 +52,31 @@ export async function getSellsyToken(): Promise<string> {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  GET prospects — paginé
+//  GET prospects — paginé via /companies/search
 // ─────────────────────────────────────────────────────────────
 export async function getProspects(limit = 100, offset = 0): Promise<any[]> {
   const token = await getSellsyToken();
 
-  const query = new URLSearchParams({
-    limit:  String(limit),
-    offset: String(offset),
-  });
-
-  const res = await fetch(`${SELLSY_API}/prospects?${query}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetch(
+    `${SELLSY_API}/companies/search?limit=${limit}&offset=${offset}`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization:  `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        filters: { type: 'prospect' },
+      }),
+    }
+  );
 
   if (res.status === 429) {
-    // Rate limit — attendre 2 secondes et réessayer
     await new Promise(r => setTimeout(r, 2000));
     return getProspects(limit, offset);
   }
 
-  if (!res.ok) {
-    throw new Error(`Sellsy GET /prospects failed: ${res.status}`);
-  }
+  if (!res.ok) throw new Error(`Sellsy GET /companies/search failed: ${res.status}`);
 
   const data = await res.json();
   return data.data ?? [];
@@ -118,4 +120,44 @@ export async function getProspect(id: string): Promise<any> {
   }
 
   return res.json();
+}
+
+// ─────────────────────────────────────────────────────────────
+//  GET champs custom d'une company
+// ─────────────────────────────────────────────────────────────
+export async function getCompanyCustomFields(id: number): Promise<Record<string, any>> {
+  const token = await getSellsyToken();
+
+  const res = await fetch(
+    `${SELLSY_API}/companies/${id}/custom-fields`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+
+  if (!res.ok) return {};
+
+  const data = await res.json();
+  const fields: Record<string, any> = {};
+
+  for (const field of data.data ?? []) {
+    fields[field.code] = field.value;
+  }
+
+  return fields;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  GET code postal via ID d'adresse
+// ─────────────────────────────────────────────────────────────
+export async function getCompanyAddress(addressId: number): Promise<string | null> {
+  const token = await getSellsyToken();
+
+  const res = await fetch(
+    `${SELLSY_API}/addresses/${addressId}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+
+  if (!res.ok) return null;
+
+  const data = await res.json();
+  return data.postal_code ?? null;
 }
