@@ -119,8 +119,10 @@ export async function getProspectsEnriched(limit = 100, offset = 0): Promise<any
   // Étape 2 — Récupérer les adresses UNIQUEMENT et garder seulement les 29/56
   const withAddress = await Promise.all(
     prospects.map(async (p: any) => {
+      console.log(`Prospect ${p.id} - address_id: ${p.invoicing_address_id}`);
       if (!p.invoicing_address_id) return null;
       const zipCode = await getCompanyAddress(p.invoicing_address_id);
+      console.log(`Prospect ${p.id} - zipCode: ${zipCode}`);
       if (!zipCode) return null;
       if (!zipCode.startsWith('29') && !zipCode.startsWith('56')) return null;
       return { ...p, zip_code: zipCode };
