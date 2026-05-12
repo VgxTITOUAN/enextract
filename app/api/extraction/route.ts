@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth';
 import pool from '@/lib/db';
-import { getProspects, getCompanyCustomFields, getCompanyAddress, updateProspect } from '@/lib/sellsy';
+import { getProspectsEnriched, updateProspect } from '@/lib/sellsy';
 
 // ─────────────────────────────────────────────────────────────
 //  MOCK MODE — passer à false quand Sellsy est connecté
@@ -60,19 +60,6 @@ function toDateStr(date: Date): string {
 
 function isUnknown(val: any): boolean {
   return val === null || val === undefined || val === '' || val === '0000-00-00';
-}
-
-// ─────────────────────────────────────────────────────────────
-//  ENRICHISSEMENT — champs custom + code postal
-// ─────────────────────────────────────────────────────────────
-async function enrichProspect(prospect: any): Promise<any> {
-  const [customFields, zipCode] = await Promise.all([
-    getCompanyCustomFields(prospect.id),
-    prospect.invoicing_address_id
-      ? getCompanyAddress(prospect.invoicing_address_id)
-      : Promise.resolve(null),
-  ]);
-  return { ...prospect, ...customFields, zip_code: zipCode };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -290,25 +277,23 @@ export async function POST(req: NextRequest) {
 
     // Batch 1
     while (collected.length < nb) {
-      const raw = await getProspects(100, page * 100);
-      if (!raw.length) break;
-      const enriched = await Promise.all(raw.map(enrichProspect));
+      const enriched = await getProspectsEnriched(100, page * 100);
+      if (!enriched.length) break;
       const filtered = applyBatch1(enriched, dateSortie).filter(p => !collected.find(c => c.id === p.id));
       collected.push(...filtered);
       page++;
-      if (raw.length < 100) break;
+      if (enriched.length < 100) break;
     }
 
     // Batch 2
     if (collected.length < nb) {
       page = 0;
       while (collected.length < nb) {
-        const raw = await getProspects(100, page * 100);
-        if (!raw.length) break;
-        const enriched = await Promise.all(raw.map(enrichProspect));
+        const enriched = await getProspectsEnriched(100, page * 100);
+        if (!enriched.length) break;
         const filtered = applyBatch2(enriched).filter(p => !collected.find(c => c.id === p.id)).slice(0, Math.min(10, nb - collected.length));
         collected.push(...filtered);
-        if (filtered.length >= 10 || raw.length < 100) break;
+        if (filtered.length >= 10 || enriched.length < 100) break;
         page++;
       }
     }
@@ -317,12 +302,11 @@ export async function POST(req: NextRequest) {
     if (collected.length < nb) {
       page = 0;
       while (collected.length < nb) {
-        const raw = await getProspects(100, page * 100);
-        if (!raw.length) break;
-        const enriched = await Promise.all(raw.map(enrichProspect));
+        const enriched = await getProspectsEnriched(100, page * 100);
+        if (!enriched.length) break;
         const filtered = applyBatch3(enriched).filter(p => !collected.find(c => c.id === p.id)).slice(0, Math.min(10, nb - collected.length));
         collected.push(...filtered);
-        if (filtered.length >= 10 || raw.length < 100) break;
+        if (filtered.length >= 10 || enriched.length < 100) break;
         page++;
       }
     }
@@ -331,12 +315,11 @@ export async function POST(req: NextRequest) {
     if (collected.length < nb) {
       page = 0;
       while (collected.length < nb) {
-        const raw = await getProspects(100, page * 100);
-        if (!raw.length) break;
-        const enriched = await Promise.all(raw.map(enrichProspect));
+        const enriched = await getProspectsEnriched(100, page * 100);
+        if (!enriched.length) break;
         const filtered = applyBatch4(enriched).filter(p => !collected.find(c => c.id === p.id)).slice(0, nb - collected.length);
         collected.push(...filtered);
-        if (raw.length < 100) break;
+        if (enriched.length < 100) break;
         page++;
       }
     }
