@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Accès refusé.' }, { status: 403 });
     }
 
-    const { action, user_id, new_password, name, email, password, role } = await req.json();
+    const { action, user_id, new_password, name, email, password, role, status, extraction_id } = await req.json();
 
     // ── Toggle actif/inactif ──
     if (action === 'toggle') {
@@ -82,6 +82,18 @@ export async function POST(req: NextRequest) {
       };
 
       return NextResponse.json({ success: true, user: newUser });
+    }
+
+    // ── Corriger statut extraction ──
+    if (action === 'correct_status') {
+      const validStatuses = ['done', 'partial', 'error'];
+      if (!validStatuses.includes(status)) {
+        return NextResponse.json({ success: false, error: 'Statut invalide.' }, { status: 400 });
+      }
+
+      await pool.execute('UPDATE extractions SET status = ? WHERE id = ?', [status, extraction_id]);
+
+      return NextResponse.json({ success: true });
     }
 
     return NextResponse.json({ success: false, error: 'Action inconnue.' }, { status: 400 });

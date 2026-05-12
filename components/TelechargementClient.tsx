@@ -15,6 +15,18 @@ type Extraction = {
   user_name: string;
 };
 
+type Prospect = {
+  id: number;
+  sellsy_id: string;
+  company_name: string;
+  contact_name: string;
+  email: string;
+  phone: string;
+  date_mailing_before: string | null;
+  date_mailing_after:  string | null;
+  sellsy_updated: number;
+};
+
 type Kpis = {
   total: number;
   prospects: number;
@@ -68,7 +80,8 @@ const typeBadge = (t: string) => {
   );
 };
 
-function fmtDate(s: string) {
+function fmtDate(s: string | null) {
+  if (!s) return '—';
   return new Date(s).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
@@ -76,25 +89,75 @@ export default function TelechargementClient({ extractions, kpis, prochaine, isA
   const currentYear = new Date().getFullYear();
   const [activeYear, setActiveYear] = useState<number | 'all'>(currentYear);
   const [search, setSearch] = useState('');
+  const [detail, setDetail] = useState<{ extraction: Extraction; prospects: Prospect[] } | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState<number | null>(null);
+  const [detailSearch, setDetailSearch] = useState('');
+  const [correcting, setCorrecting] = useState<number | null>(null);
+  const [newStatus, setNewStatus] = useState('done');
+  const [extractionList, setExtractionList] = useState<Extraction[]>(extractions);
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
-  const years = [...new Set(extractions.map(e => new Date(e.created_at).getFullYear()))].sort((a, b) => b - a);
+  const years = [...new Set(extractionList.map(e => new Date(e.created_at).getFullYear()))].sort((a, b) => b - a);
 
-  const filtered = extractions.filter(e => {
+  const filtered = extractionList.filter(e => {
     const year = new Date(e.created_at).getFullYear();
     if (activeYear !== 'all' && year !== activeYear) return false;
     if (search && !e.user_name.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
 
+  function showToast(msg: string, ok = true) {
+    setToast({ msg, ok });
+    setTimeout(() => setToast(null), 3000);
+  }
+
+  async function openDetail(e: Extraction) {
+    setLoadingDetail(e.id);
+    try {
+      const res  = await fetch(`/api/telechargement/${e.id}`);
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, false); return; }
+      setDetail({ extraction: e, prospects: data.prospects });
+      setDetailSearch('');
+    } catch {
+      showToast('Erreur réseau.', false);
+    } finally {
+      setLoadingDetail(null);
+    }
+  }
+
+  async function corrigerStatut(id: number) {
+    try {
+      const res = await fetch('/api/users', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ action: 'correct_status', extraction_id: id, status: newStatus }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.error, false); return; }
+      setExtractionList(prev => prev.map(e => e.id === id ? { ...e, status: newStatus } : e));
+      showToast('Statut corrigé.');
+      setCorrecting(null);
+    } catch {
+      showToast('Erreur réseau.', false);
+    }
+  }
+
+  const filteredProspects = detail?.prospects.filter(p =>
+    !detailSearch ||
+    p.company_name?.toLowerCase().includes(detailSearch.toLowerCase()) ||
+    p.contact_name?.toLowerCase().includes(detailSearch.toLowerCase())
+  ) ?? [];
+
   return (
     <div>
-      {/* Prochaine extraction planifiée */}
+      {/* Prochaine extraction */}
       {prochaine && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mb-5 flex items-center justify-between text-sm">
           <div>
             <span className="font-semibold text-blue-700">🕐 Prochaine extraction planifiée</span>
             <span className="text-gray-500 ml-3">
-              {new Date(prochaine.date_lancement).toLocaleDateString('fr-FR')} — {prochaine.nb_prospects} prospects ({prochaine.user_name})
+              {fmtDate(prochaine.date_lancement)} — {prochaine.nb_prospects} prospects ({prochaine.user_name})
             </span>
           </div>
           <a href="/planification" className="text-blue-600 text-xs font-semibold hover:underline">
@@ -125,9 +188,7 @@ export default function TelechargementClient({ extractions, kpis, prochaine, isA
             <button
               onClick={() => setActiveYear('all')}
               className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
-                activeYear === 'all'
-                  ? 'bg-gray-800 text-white border-gray-800'
-                  : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'
+                activeYear === 'all' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'
               }`}
             >
               Tout
@@ -136,10 +197,11 @@ export default function TelechargementClient({ extractions, kpis, prochaine, isA
               <button
                 key={y}
                 onClick={() => setActiveYear(y)}
-                className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
-                  activeYear === y ? 'text-white' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'
-                }`}
-                style={activeYear === y ? { backgroundColor: '#6bb100', borderColor: '#6bb100' } : {}}
+                className="px-3 py-1 rounded-full text-xs font-semibold border transition-colors"
+                style={activeYear === y
+                  ? { backgroundColor: '#6bb100', borderColor: '#6bb100', color: 'white' }
+                  : { backgroundColor: 'white', color: '#6c757d', borderColor: '#dee2e6' }
+                }
               >
                 {y}
               </button>
@@ -165,14 +227,13 @@ export default function TelechargementClient({ extractions, kpis, prochaine, isA
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Nb sorties</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Sellsy MàJ</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Statut</th>
-                <th className="text-center px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Fichier</th>
-                <th className="text-center px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Corriger</th>
+                <th className="text-center px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="text-center py-10 text-gray-400 text-xs">
+                  <td colSpan={8} className="text-center py-10 text-gray-400 text-xs">
                     Aucune extraction pour cette période.
                   </td>
                 </tr>
@@ -195,30 +256,36 @@ export default function TelechargementClient({ extractions, kpis, prochaine, isA
                     </td>
                     <td className="px-4 py-3 text-gray-600">{e.status === 'error' ? '—' : e.nb_maj_sellsy}</td>
                     <td className="px-4 py-3">{statusBadge(e.status)}</td>
-                    <td className="px-4 py-3 text-center">
-                      {e.chemin_fichier ? (
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-center gap-1.5">
+                        {/* Voir le détail */}
+                        <button
+                          onClick={() => openDetail(e)}
+                          disabled={loadingDetail === e.id}
+                          className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-gray-100 hover:bg-blue-100 hover:text-blue-600 text-gray-500 transition-colors text-xs"
+                          title="Voir le détail"
+                        >
+                          {loadingDetail === e.id ? '⏳' : '🔍'}
+                        </button>
+                        {/* Télécharger CSV */}
                         <a
-                          href={`/api/telechargement/${e.id}`}
+                          href={`/api/telechargement/${e.id}?format=csv`}
                           className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-gray-100 hover:bg-[#6bb100] hover:text-white text-gray-500 transition-colors text-xs"
+                          title="Télécharger CSV"
                         >
                           ⬇
                         </a>
-                      ) : (
-                        <span className="text-gray-300 text-xs">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {e.status !== 'done' ? (
-                        <button
-                          onClick={() => alert('Correction statut — à implémenter')}
-                          className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-500 transition-colors text-xs"
-                          title="Corriger le statut"
-                        >
-                          🔧
-                        </button>
-                      ) : (
-                        <span className="text-gray-300 text-xs">—</span>
-                      )}
+                        {/* Corriger statut */}
+                        {e.status !== 'done' && (
+                          <button
+                            onClick={() => { setCorrecting(e.id); setNewStatus('done'); }}
+                            className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-500 transition-colors text-xs"
+                            title="Corriger le statut"
+                          >
+                            🔧
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -230,6 +297,150 @@ export default function TelechargementClient({ extractions, kpis, prochaine, isA
           {filtered.length} extraction(s) affichée(s)
         </div>
       </div>
+
+      {/* Toast */}
+      {toast && (
+        <div
+          className="fixed bottom-6 right-6 px-4 py-3 rounded-xl text-white text-sm font-medium shadow-lg z-50"
+          style={{ backgroundColor: toast.ok ? '#4a7c00' : '#e03131' }}
+        >
+          {toast.msg}
+        </div>
+      )}
+
+      {/* Modal détail */}
+      {detail && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden">
+            <div className="px-5 pt-5 pb-4 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-gray-800">
+                  Détail — Extraction #{detail.extraction.id}
+                </h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {fmtDate(detail.extraction.created_at)} · {detail.extraction.user_name} · {detail.prospects.length} prospect(s)
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={`/api/telechargement/${detail.extraction.id}?format=csv`}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg text-white transition-colors"
+                  style={{ backgroundColor: '#6bb100' }}
+                >
+                  ⬇ Télécharger CSV
+                </a>
+                <button onClick={() => setDetail(null)} className="text-gray-400 hover:text-gray-600 text-lg">×</button>
+              </div>
+            </div>
+
+            {/* Méta */}
+            <div className="px-5 py-3 border-b border-gray-100 grid grid-cols-4 gap-3">
+              {[
+                { label: 'Type',        value: detail.extraction.type },
+                { label: 'Nb demandé', value: detail.extraction.nb_demande },
+                { label: 'Nb sorties', value: detail.extraction.nb_sortie },
+                { label: 'Statut',     value: statusBadge(detail.extraction.status) },
+              ].map(m => (
+                <div key={m.label}>
+                  <p className="text-xs text-gray-400">{m.label}</p>
+                  <p className="text-sm font-semibold text-gray-800 mt-0.5">{m.value}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Recherche */}
+            <div className="px-5 py-3 border-b border-gray-100">
+              <input
+                type="text"
+                placeholder="Rechercher un prospect..."
+                value={detailSearch}
+                onChange={e => setDetailSearch(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:border-[#6bb100]"
+              />
+            </div>
+
+            {/* Table prospects */}
+            <div className="overflow-y-auto flex-1">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50 sticky top-0">
+                  <tr>
+                    <th className="text-left px-4 py-2.5 font-semibold text-gray-400 uppercase tracking-wide">Société</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-gray-400 uppercase tracking-wide">Contact</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-gray-400 uppercase tracking-wide">Email</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-gray-400 uppercase tracking-wide">Date mailing avant</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-gray-400 uppercase tracking-wide">Date mailing après</th>
+                    <th className="text-center px-4 py-2.5 font-semibold text-gray-400 uppercase tracking-wide">Sellsy MàJ</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {filteredProspects.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="text-center py-8 text-gray-400">
+                        {detail.prospects.length === 0 ? 'Aucun prospect pour cette extraction.' : 'Aucun résultat.'}
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredProspects.map(p => (
+                      <tr key={p.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-2.5 font-medium text-gray-800">{p.company_name || '—'}</td>
+                        <td className="px-4 py-2.5 text-gray-600">{p.contact_name || '—'}</td>
+                        <td className="px-4 py-2.5 text-gray-400">{p.email || '—'}</td>
+                        <td className="px-4 py-2.5 text-gray-400">{fmtDate(p.date_mailing_before)}</td>
+                        <td className="px-4 py-2.5 text-gray-400">{fmtDate(p.date_mailing_after)}</td>
+                        <td className="px-4 py-2.5 text-center">
+                          {p.sellsy_updated
+                            ? <span className="text-green-600 font-semibold">✓</span>
+                            : <span className="text-red-400">✕</span>
+                          }
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal correction statut */}
+      {correcting && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-sm overflow-hidden">
+            <div className="px-5 pt-5 pb-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-gray-800">Correction manuelle du statut</h3>
+              <button onClick={() => setCorrecting(null)} className="text-gray-400 hover:text-gray-600 text-lg">×</button>
+            </div>
+            <div className="px-5 py-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700 mb-4">
+                ⚠️ À utiliser uniquement en cas d'erreur technique avérée.
+              </div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Nouveau statut</label>
+              <select
+                value={newStatus}
+                onChange={e => setNewStatus(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-[#6bb100]"
+              >
+                <option value="done">Succès</option>
+                <option value="partial">Partiel</option>
+                <option value="error">Erreur</option>
+              </select>
+            </div>
+            <div className="px-5 pb-5 flex gap-2">
+              <button onClick={() => setCorrecting(null)} className="flex-1 py-2 text-sm text-gray-500 border border-gray-300 rounded-lg hover:bg-gray-50">
+                Annuler
+              </button>
+              <button
+                onClick={() => corrigerStatut(correcting)}
+                className="flex-1 py-2 text-sm font-semibold text-white rounded-lg"
+                style={{ backgroundColor: '#6bb100' }}
+              >
+                Appliquer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
