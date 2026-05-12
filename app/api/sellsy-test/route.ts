@@ -5,28 +5,15 @@ export async function GET() {
   try {
     const token = await getSellsyToken();
 
-    // Tester plusieurs endpoints possibles
-    const endpoints = [
-      '/v2/prospects',
-      '/v2/companies',
-      '/v2/individuals',
-      '/v2/contacts',
-    ];
+    // Récupérer le premier prospect avec ses champs custom
+    const res = await fetch(
+      `https://api.sellsy.com/v2/companies?limit=1&type=prospect&embed[]=custom_fields`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
 
-    const results: Record<string, any> = {};
+    const data = res.ok ? await res.json() : await res.text();
 
-    for (const ep of endpoints) {
-      const res = await fetch(`https://api.sellsy.com${ep}?limit=1`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      results[ep] = {
-        status: res.status,
-        ok:     res.ok,
-        data:   res.ok ? await res.json() : await res.text(),
-      };
-    }
-
-    return NextResponse.json({ success: true, token_ok: true, results });
+    return NextResponse.json({ success: true, token_ok: true, status: res.status, data });
 
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
