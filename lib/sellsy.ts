@@ -66,7 +66,10 @@ export async function getProspects(limit = 100, offset = 0): Promise<any[]> {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        filters: { type: 'prospect' },
+        filters: {
+          type:        'prospect',
+          is_archived: false,
+        },
       }),
     }
   );
