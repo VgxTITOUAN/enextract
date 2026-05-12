@@ -116,11 +116,11 @@ export async function getProspectsEnriched(limit = 100, offset = 0): Promise<any
   const data = await res.json();
   const prospects = data.data ?? [];
 
-  // Étape 2 — Récupérer les adresses UNIQUEMENT et garder seulement les 29/56
+  // Étape 2 — Filtrer 29/56 via le champ note
   const withAddress = await Promise.all(
     prospects.map(async (p: any) => {
-      if (!p.invoicing_address_id) return null;
-      const zipCode = await getCompanyAddress(p.invoicing_address_id);
+      const zipCode = p.note ? p.note.trim() : null;
+      console.log(`Prospect ${p.id} - note/zip: ${zipCode}`);
       if (!zipCode) return null;
       if (!zipCode.startsWith('29') && !zipCode.startsWith('56')) return null;
       return { ...p, zip_code: zipCode };
@@ -130,10 +130,9 @@ export async function getProspectsEnriched(limit = 100, offset = 0): Promise<any
   const filtered29_56 = withAddress.filter(Boolean);
   if (!filtered29_56.length) return [];
 
-  // Étape 3 — Récupérer les custom fields UNIQUEMENT pour les 29/56
+  // Étape 3 — Récupérer les custom fields pour les 29/56 uniquement
   const enriched = await Promise.all(
     filtered29_56.map(async (p: any) => {
-      await new Promise(r => setTimeout(r, 100)); // 100ms entre chaque appel
       const customFields = await getCompanyCustomFields(p.id);
       return { ...p, ...customFields };
     })
@@ -203,28 +202,4 @@ export async function getCompanyCustomFields(id: number): Promise<Record<string,
   }
 
   return fields;
-}
-
-// ─────────────────────────────────────────────────────────────
-//  GET code postal via ID d'adresse
-// ─────────────────────────────────────────────────────────────
-export async function getCompanyAddress(addressId: number): Promise<string | null> {
-  const token = await getSellsyToken();
-
-  const res = await fetch(
-    `${SELLSY_API}/addresses/${addressId}`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-
-  console.log(`Adresse ${addressId} - status: ${res.status}`);
-
-  if (!res.ok) {
-    const err = await res.text();
-    console.log(`Adresse ${addressId} - erreur: ${err}`);
-    return null;
-  }
-
-  const data = await res.json();
-  console.log(`Adresse ${addressId} - data:`, JSON.stringify(data));
-  return data.postal_code ?? null;
 }
