@@ -30,6 +30,8 @@ export default function DroitsClient({ users: initialUsers, currentUserId }: Pro
   const [newPassword, setNewPassword] = useState('');
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'commercial' });
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  const [syncStatus, setSyncStatus]   = useState<{ total: number; last_sync: string | null; is_empty: boolean } | null>(null);
+  const [syncing, setSyncing]         = useState(false);
 
   const admins      = users.filter(u => u.role === 'admin');
   const commerciaux = users.filter(u => u.role === 'commercial');
@@ -37,6 +39,31 @@ export default function DroitsClient({ users: initialUsers, currentUserId }: Pro
   function showToast(msg: string, ok = true) {
     setToast({ msg, ok });
     setTimeout(() => setToast(null), 3000);
+  }
+
+  async function checkSync() {
+    try {
+      const res  = await fetch('/api/sellsy-sync');
+      const data = await res.json();
+      if (res.ok) setSyncStatus(data);
+    } catch {}
+  }
+
+  async function lancerSync() {
+    if (!confirm('Lancer la synchronisation Sellsy ? Cela peut prendre 20-40 minutes.')) return;
+    setSyncing(true);
+    showToast('Synchronisation lancée — ne fermez pas cette page.', true);
+    try {
+      const res  = await fetch('/api/sellsy-sync', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, false); return; }
+      showToast(`Sync terminée — ${data.totalInserted} prospects chargés.`);
+      checkSync();
+    } catch {
+      showToast('Erreur réseau pendant la sync.', false);
+    } finally {
+      setSyncing(false);
+    }
   }
 
   async function toggleUser(id: number) {
@@ -154,6 +181,36 @@ export default function DroitsClient({ users: initialUsers, currentUserId }: Pro
 
   return (
     <div className="max-w-3xl">
+
+      {/* Sync Sellsy — admin seulement */}
+      <div className="bg-white border border-gray-200 rounded-xl p-4 mb-5 shadow-sm">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <p className="text-sm font-bold text-gray-800">🔄 Cache Sellsy</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {syncStatus === null
+                ? <button onClick={checkSync} className="text-blue-500 hover:underline">Vérifier l'état du cache</button>
+                : syncStatus.is_empty
+                  ? 'Cache vide — lancez une première synchronisation.'
+                  : `${syncStatus.total.toLocaleString('fr-FR')} prospects en cache · Dernière sync : ${syncStatus.last_sync ? new Date(syncStatus.last_sync).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}`
+              }
+            </p>
+          </div>
+          <button
+            onClick={lancerSync}
+            disabled={syncing}
+            className="px-4 py-2 text-sm font-semibold text-white rounded-lg disabled:opacity-50 transition-colors"
+            style={{ backgroundColor: syncing ? '#adb5bd' : '#1971c2' }}
+          >
+            {syncing ? '⏳ Sync en cours...' : '↻ Synchroniser Sellsy'}
+          </button>
+        </div>
+        {syncing && (
+          <div className="mt-3 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-700">
+            ⚠️ La synchronisation tourne en arrière-plan. Ne fermez pas cette page. Durée estimée : 20-40 min.
+          </div>
+        )}
+      </div>
 
       {/* Header */}
       <div className="flex items-center justify-between mb-5">

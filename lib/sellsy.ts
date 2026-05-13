@@ -1,17 +1,23 @@
 // ─────────────────────────────────────────────────────────────
-//  Client Sellsy — OAuth2 client_credentials
-//  Token global, mis en cache côté serveur
-//  À utiliser uniquement côté serveur (API routes)
+//  lib/sellsy.ts — version avec cache BDD
+//
+//  getProspectsEnriched lit depuis sellsy_cache (MariaDB)
+//  → extraction < 1 seconde au lieu de 2-3 minutes
+//
+//  Les fonctions Sellsy directes (getSellsyToken, updateProspect,
+//  getCompanyFullAddress, getCompanyCustomFields) restent
+//  inchangées — utilisées uniquement par /api/sellsy-sync
 // ─────────────────────────────────────────────────────────────
+
+import pool from '@/lib/db';
 
 const SELLSY_API  = 'https://api.sellsy.com/v2';
 const SELLSY_AUTH = 'https://login.sellsy.com/oauth2/access-tokens';
 
-// Cache du token en mémoire serveur
 let cachedToken: { value: string; expiry: number } | null = null;
 
 // ─────────────────────────────────────────────────────────────
-//  Obtenir un token valide (récupère ou rafraîchit)
+//  Auth Sellsy
 // ─────────────────────────────────────────────────────────────
 export async function getSellsyToken(): Promise<string> {
   if (cachedToken && cachedToken.expiry > Date.now() + 60_000) {
@@ -41,7 +47,6 @@ export async function getSellsyToken(): Promise<string> {
   }
 
   const data = await res.json();
-
   cachedToken = {
     value:  data.access_token,
     expiry: Date.now() + (data.expires_in * 1000),
@@ -51,7 +56,7 @@ export async function getSellsyToken(): Promise<string> {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  Helper interne — exécute fn sur items en batches parallèles
+//  Helper batch
 // ─────────────────────────────────────────────────────────────
 async function processBatch<T>(
   items: any[],
@@ -61,9 +66,9 @@ async function processBatch<T>(
 ): Promise<(T | null)[]> {
   const results: (T | null)[] = [];
   for (let i = 0; i < items.length; i += batchSize) {
-    const batch        = items.slice(i, i + batchSize);
-    const batchResults = await Promise.all(batch.map(fn));
-    results.push(...batchResults);
+    const batch = items.slice(i, i + batchSize);
+    const res   = await Promise.all(batch.map(fn));
+    results.push(...res);
     if (i + batchSize < items.length) {
       await new Promise(r => setTimeout(r, delayMs));
     }
@@ -72,111 +77,50 @@ async function processBatch<T>(
 }
 
 // ─────────────────────────────────────────────────────────────
-//  Type — prospect enrichi retourné par getProspectsEnriched
+//  Type prospect enrichi
 // ─────────────────────────────────────────────────────────────
 export interface ProspectEnriched {
-  id:               number;
-  name:             string;
-  website:          string | null;
-  zip_code:         string | null;
-  address:          string | null;
-  city:             string | null;
-  phone:            string | null;   // fixe
-  phone_mobile:     string | null;   // mobile
-  // champs custom
-  datemailling:     string | null;
-  datecommandendd:  string | null;
-  'date-fin-contrat': string | null;
+  id:                   number;
+  name:                 string;
+  website:              string | null;
+  zip_code:             string | null;
+  address:              string | null;
+  city:                 string | null;
+  phone:                string | null;
+  phone_mobile:         string | null;
+  datemailling:         string | null;
+  datecommandendd:      string | null;
+  'date-fin-contrat':   string | null;
   [key: string]: any;
 }
 
 // ─────────────────────────────────────────────────────────────
-//  GET prospects enrichis — version optimisée
-//
-//  Stratégie :
-//  1. Récupère une page de prospects non archivés
-//     → website + téléphones déjà dans la réponse /companies/search
-//  2. Charge les adresses en parallèle (batch ×10)
-//     → filtre 29/56 ICI, élimine tout le reste immédiatement
-//  3. Charge les custom fields UNIQUEMENT sur les 29/56
-//     → gain massif : ~10% de la page passe le filtre dept
+//  GET prospects enrichis — LIT DEPUIS LE CACHE BDD
+//  ⚡ < 1ms pour n'importe quel volume
 // ─────────────────────────────────────────────────────────────
 export async function getProspectsEnriched(limit = 100, offset = 0): Promise<ProspectEnriched[]> {
-  const token = await getSellsyToken();
-
-  // ── Étape 1 : page de prospects ─────────────────────────────
-  const res = await fetch(
-    `${SELLSY_API}/companies/search?limit=${limit}&offset=${offset}`,
-    {
-      method:  'POST',
-      headers: {
-        Authorization:  `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        filters: { type: 'prospect', is_archived: false },
-      }),
-    }
+  const [rows]: any = await pool.execute(
+    `SELECT
+       id, name, website, zip_code, address, city,
+       phone, phone_mobile,
+       datemailling, datecommandendd, date_fin_contrat
+     FROM sellsy_cache
+     WHERE zip_code IS NOT NULL
+       AND (zip_code LIKE '29%' OR zip_code LIKE '56%')
+     ORDER BY id
+     LIMIT ? OFFSET ?`,
+    [limit, offset]
   );
 
-  if (res.status === 429) {
-    await new Promise(r => setTimeout(r, 2000));
-    return getProspectsEnriched(limit, offset);
-  }
-
-  if (!res.ok) throw new Error(`Sellsy search failed: ${res.status}`);
-
-  const data      = await res.json();
-  const prospects = data.data ?? [];
-  if (!prospects.length) return [];
-
-  // ── Étape 2 : adresses + filtre 29/56 ───────────────────────
-  // On récupère aussi rue + ville ici, pas besoin d'un 2e appel
-  const withAddressResults = await processBatch(
-    prospects,
-    async (p: any) => {
-      const addr = await getCompanyFullAddress(p.id);
-      if (!addr) return null;
-      if (!addr.zip_code.startsWith('29') && !addr.zip_code.startsWith('56')) return null;
-
-      // website et téléphones sont dans la réponse /companies/search
-      const phone       = p.phone_number        ?? p.phone        ?? null;
-      const phoneMobile = p.mobile_phone_number ?? p.mobile       ?? null;
-      const website     = p.website             ?? null;
-
-      return {
-        ...p,
-        website,
-        phone,
-        phone_mobile:  phoneMobile,
-        zip_code:      addr.zip_code,
-        address:       addr.address,
-        city:          addr.city,
-      };
-    },
-    10,
-    100
-  );
-
-  const inZone = withAddressResults.filter(Boolean) as any[];
-  if (!inZone.length) return [];
-
-  // ── Étape 3 : custom fields uniquement sur les 29/56 ────────
-  const enriched = await processBatch(
-    inZone,
-    async (p: any) => {
-      const customFields = await getCompanyCustomFields(p.id);
-      return { ...p, ...customFields } as ProspectEnriched;
-    },
-    10,
-    100
-  );
-
-  return enriched.filter(Boolean) as ProspectEnriched[];
+  // Normalise date_fin_contrat → clé avec tiret pour compatibilité filtres métier
+  return rows.map((r: any) => ({
+    ...r,
+    'date-fin-contrat': r.date_fin_contrat ?? null,
+  })) as ProspectEnriched[];
 }
 
 // ─────────────────────────────────────────────────────────────
-//  GET prospects — paginé simple (non enrichi)
+//  GET prospects simple (non enrichi) — toujours depuis Sellsy
 // ─────────────────────────────────────────────────────────────
 export async function getProspects(limit = 100, offset = 0): Promise<any[]> {
   const token = await getSellsyToken();
@@ -207,7 +151,8 @@ export async function getProspects(limit = 100, offset = 0): Promise<any[]> {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  PUT prospect — mise à jour champs custom
+//  PUT prospect — mise à jour datemailling dans Sellsy
+//  ET dans le cache BDD
 // ─────────────────────────────────────────────────────────────
 export async function updateProspect(id: string, fields: Record<string, any>): Promise<boolean> {
   const token = await getSellsyToken();
@@ -226,12 +171,21 @@ export async function updateProspect(id: string, fields: Record<string, any>): P
     return updateProspect(id, fields);
   }
 
-  return res.ok;
+  const ok = res.ok;
+
+  // Sync cache BDD si succès
+  if (ok && fields.datemailling) {
+    await pool.execute(
+      `UPDATE sellsy_cache SET datemailling = ?, synced_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [fields.datemailling, id]
+    ).catch(() => {}); // non bloquant
+  }
+
+  return ok;
 }
 
 // ─────────────────────────────────────────────────────────────
-//  GET adresse complète d'une company
-//  Retourne zip_code, address (rue), city
+//  GET adresse complète depuis Sellsy (utilisé par /api/sellsy-sync)
 // ─────────────────────────────────────────────────────────────
 export async function getCompanyFullAddress(
   companyId: number
@@ -245,27 +199,25 @@ export async function getCompanyFullAddress(
 
   if (!res.ok) return null;
 
-  const data    = await res.json();
-  const addr    = data.data?.[0];
+  const data = await res.json();
+  const addr = data.data?.[0];
   if (!addr?.postal_code) return null;
 
   return {
-    zip_code: addr.postal_code          ?? '',
-    address:  addr.address_line_1       ?? null,
-    city:     addr.city                 ?? null,
+    zip_code: addr.postal_code    ?? '',
+    address:  addr.address_line_1 ?? null,
+    city:     addr.city           ?? null,
   };
 }
 
-// ─────────────────────────────────────────────────────────────
-//  GET adresse simple — rétrocompat (retourne juste le zip)
-// ─────────────────────────────────────────────────────────────
+// Rétrocompat
 export async function getCompanyAddress(companyId: number): Promise<string | null> {
   const full = await getCompanyFullAddress(companyId);
   return full?.zip_code ?? null;
 }
 
 // ─────────────────────────────────────────────────────────────
-//  GET champs custom d'une company
+//  GET champs custom depuis Sellsy (utilisé par /api/sellsy-sync)
 // ─────────────────────────────────────────────────────────────
 export async function getCompanyCustomFields(id: number): Promise<Record<string, any>> {
   const token = await getSellsyToken();
