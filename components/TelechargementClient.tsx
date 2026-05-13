@@ -16,15 +16,17 @@ type Extraction = {
 };
 
 type Prospect = {
-  id: number;
-  sellsy_id: string;
-  company_name: string;
-  contact_name: string;
-  email: string;
-  phone: string;
+  id:                  number;
+  sellsy_id:           string;
+  company_name:        string;
+  website:             string | null;
+  address:             string | null;
+  city:                string | null;
+  phone:               string | null;
+  phone_mobile:        string | null;
   date_mailing_before: string | null;
   date_mailing_after:  string | null;
-  sellsy_updated: number;
+  sellsy_updated:      number;
 };
 
 type Kpis = {
@@ -146,7 +148,7 @@ export default function TelechargementClient({ extractions, kpis, prochaine, isA
   const filteredProspects = detail?.prospects.filter(p =>
     !detailSearch ||
     p.company_name?.toLowerCase().includes(detailSearch.toLowerCase()) ||
-    p.contact_name?.toLowerCase().includes(detailSearch.toLowerCase())
+    p.city?.toLowerCase().includes(detailSearch.toLowerCase())
   ) ?? [];
 
   return (
@@ -365,17 +367,18 @@ export default function TelechargementClient({ extractions, kpis, prochaine, isA
                 <thead className="bg-gray-50 sticky top-0">
                   <tr>
                     <th className="text-left px-4 py-2.5 font-semibold text-gray-400 uppercase tracking-wide">Société</th>
-                    <th className="text-left px-4 py-2.5 font-semibold text-gray-400 uppercase tracking-wide">Contact</th>
-                    <th className="text-left px-4 py-2.5 font-semibold text-gray-400 uppercase tracking-wide">Email</th>
-                    <th className="text-left px-4 py-2.5 font-semibold text-gray-400 uppercase tracking-wide">Date mailing avant</th>
-                    <th className="text-left px-4 py-2.5 font-semibold text-gray-400 uppercase tracking-wide">Date mailing après</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-gray-400 uppercase tracking-wide">Site web</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-gray-400 uppercase tracking-wide">Adresse</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-gray-400 uppercase tracking-wide">Ville</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-gray-400 uppercase tracking-wide">Tél fixe</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-gray-400 uppercase tracking-wide">Tél mobile</th>
                     <th className="text-center px-4 py-2.5 font-semibold text-gray-400 uppercase tracking-wide">Sellsy MàJ</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {filteredProspects.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="text-center py-8 text-gray-400">
+                      <td colSpan={7} className="text-center py-8 text-gray-400">
                         {detail.prospects.length === 0 ? 'Aucun prospect pour cette extraction.' : 'Aucun résultat.'}
                       </td>
                     </tr>
@@ -383,10 +386,15 @@ export default function TelechargementClient({ extractions, kpis, prochaine, isA
                     filteredProspects.map(p => (
                       <tr key={p.id} className="hover:bg-gray-50">
                         <td className="px-4 py-2.5 font-medium text-gray-800">{p.company_name || '—'}</td>
-                        <td className="px-4 py-2.5 text-gray-600">{p.contact_name || '—'}</td>
-                        <td className="px-4 py-2.5 text-gray-400">{p.email || '—'}</td>
-                        <td className="px-4 py-2.5 text-gray-400">{fmtDate(p.date_mailing_before)}</td>
-                        <td className="px-4 py-2.5 text-gray-400">{fmtDate(p.date_mailing_after)}</td>
+                        <td className="px-4 py-2.5 text-gray-500 max-w-[140px] truncate">
+                          {p.website
+                            ? <a href={p.website} target="_blank" rel="noopener noreferrer" className="hover:underline text-blue-500">{p.website.replace(/^https?:\/\//, '')}</a>
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-2.5 text-gray-500">{p.address || '—'}</td>
+                        <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{p.city || '—'}</td>
+                        <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{p.phone || '—'}</td>
+                        <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{p.phone_mobile || '—'}</td>
                         <td className="px-4 py-2.5 text-center">
                           {p.sellsy_updated
                             ? <span className="text-green-600 font-semibold">✓</span>
