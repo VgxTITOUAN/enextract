@@ -102,7 +102,6 @@ export async function getProspectsEnriched(limit = 100, offset = 0): Promise<any
       },
       body: JSON.stringify({
         filters: { type: 'prospect', is_archived: false },
-        embed:   ['invoicing_address'],
       }),
     }
   );
@@ -117,11 +116,11 @@ export async function getProspectsEnriched(limit = 100, offset = 0): Promise<any
   const data = await res.json();
   const prospects = data.data ?? [];
 
-  // Étape 2 — Filtrer 29/56 via le champ note
+  // Étape 2 — Filtrer 29/56 via l'adresse de facturation
   const withAddress = await Promise.all(
     prospects.map(async (p: any) => {
-      const zipCode = p.note ? p.note.trim() : null;
-      console.log(`Prospect ${p.id} - note/zip: ${zipCode}`);
+      const zipCode = await getCompanyAddress(p.id);
+      console.log(`Prospect ${p.id} - zip: ${zipCode}`);
       if (!zipCode) return null;
       if (!zipCode.startsWith('29') && !zipCode.startsWith('56')) return null;
       return { ...p, zip_code: zipCode };
@@ -180,6 +179,24 @@ export async function getProspect(id: string): Promise<any> {
   }
 
   return res.json();
+}
+
+// ─────────────────────────────────────────────────────────────
+//  GET adresse de facturation d'une company
+// ─────────────────────────────────────────────────────────────
+export async function getCompanyAddress(companyId: number): Promise<string | null> {
+  const token = await getSellsyToken();
+
+  const res = await fetch(
+    `${SELLSY_API}/companies/${companyId}/addresses`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+
+  if (!res.ok) return null;
+
+  const data = await res.json();
+  const address = data.data?.[0];
+  return address?.postal_code ?? null;
 }
 
 // ─────────────────────────────────────────────────────────────
