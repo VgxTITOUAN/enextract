@@ -88,6 +88,24 @@ export async function getProspects(limit = 100, offset = 0): Promise<any[]> {
 // ─────────────────────────────────────────────────────────────
 //  GET prospects enrichis — filtre 29/56 + custom fields en une passe
 // ─────────────────────────────────────────────────────────────
+async function processBatch<T>(
+  items: any[],
+  fn: (item: any) => Promise<T>,
+  batchSize = 5,
+  delayMs = 200
+): Promise<(T | null)[]> {
+  const results: (T | null)[] = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map(fn));
+    results.push(...batchResults);
+    if (i + batchSize < items.length) {
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+  return results;
+}
+
 export async function getProspectsEnriched(limit = 100, offset = 0): Promise<any[]> {
   const token = await getSellsyToken();
 
@@ -116,29 +134,34 @@ export async function getProspectsEnriched(limit = 100, offset = 0): Promise<any
   const data = await res.json();
   const prospects = data.data ?? [];
 
-  // Étape 2 — Filtrer 29/56 via l'adresse de facturation (séquentiel pour éviter le rate limit)
-  const withAddress: any[] = [];
-  for (const p of prospects) {
-    await new Promise(r => setTimeout(r, 100));
-    const zipCode = await getCompanyAddress(p.id);
-    console.log(`Prospect ${p.id} - zip: ${zipCode}`);
-    if (!zipCode) continue;
-    if (!zipCode.startsWith('29') && !zipCode.startsWith('56')) continue;
-    withAddress.push({ ...p, zip_code: zipCode });
-  }
+  // Étape 2 — adresses en batches de 5
+  const withAddressResults = await processBatch(
+    prospects,
+    async (p: any) => {
+      const zipCode = await getCompanyAddress(p.id);
+      if (!zipCode) return null;
+      if (!zipCode.startsWith('29') && !zipCode.startsWith('56')) return null;
+      return { ...p, zip_code: zipCode };
+    },
+    5,
+    200
+  );
+  const withAddress = withAddressResults.filter(Boolean);
 
   if (!withAddress.length) return [];
 
-  // Étape 3 — Récupérer les custom fields pour les 29/56 uniquement (séquentiel avec délai progressif)
-  const enriched: any[] = [];
-  for (let i = 0; i < withAddress.length; i++) {
-    const p = withAddress[i];
-    await new Promise(r => setTimeout(r, 150));
-    const customFields = await getCompanyCustomFields(p.id);
-    enriched.push({ ...p, ...customFields });
-  }
+  // Étape 3 — custom fields en batches de 5
+  const enriched = await processBatch(
+    withAddress,
+    async (p: any) => {
+      const customFields = await getCompanyCustomFields(p.id);
+      return { ...p, ...customFields };
+    },
+    5,
+    200
+  );
 
-  return enriched;
+  return enriched.filter(Boolean);
 }
 
 // ─────────────────────────────────────────────────────────────
