@@ -284,7 +284,9 @@ export async function POST(req: NextRequest) {
     while (collected.length < nb) {
       const enriched = await getProspectsEnriched(100, page * 100);
       if (!enriched.length) break;
-      const filtered = applyBatch1(enriched, dateSortie).filter(p => !collected.find(c => c.id === p.id));
+      const filtered = applyBatch1(enriched, dateSortie)
+        .filter(p => !collected.find((c: any) => c.id === p.id))
+        .slice(0, nb - collected.length);
       collected.push(...filtered);
       page++;
       if (enriched.length < 100) break;
