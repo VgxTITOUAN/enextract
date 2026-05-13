@@ -268,6 +268,22 @@ export async function POST(req: NextRequest) {
     }
 
     // ── MODE RÉEL ─────────────────────────────────────────────
+    // Planifiée ou récurrente → enregistrer en BDD, pas d'extraction immédiate
+    if (mode === 'planifiee' || mode === 'recurrente') {
+      await pool.execute(
+        `INSERT INTO schedules (user_id, type, rythme, date_lancement, heure, nb_prospects, actif)
+         VALUES (?, ?, ?, ?, ?, ?, 1)`,
+        [user.id, mode, rythme ?? null, dateLancement, heure ?? '00:00', nb]
+      );
+      return NextResponse.json({
+        success:   true,
+        scheduled: true,
+        message:   mode === 'recurrente'
+          ? 'Récurrence activée — elle se déclenchera automatiquement.'
+          : 'Extraction planifiée — elle se déclenchera à la date prévue.',
+      });
+    }
+
     const collected: any[] = [];
     let page = 0;
 
