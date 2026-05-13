@@ -116,27 +116,27 @@ export async function getProspectsEnriched(limit = 100, offset = 0): Promise<any
   const data = await res.json();
   const prospects = data.data ?? [];
 
-  // Étape 2 — Filtrer 29/56 via l'adresse de facturation
-  const withAddress = await Promise.all(
-    prospects.map(async (p: any) => {
-      const zipCode = await getCompanyAddress(p.id);
-      console.log(`Prospect ${p.id} - zip: ${zipCode}`);
-      if (!zipCode) return null;
-      if (!zipCode.startsWith('29') && !zipCode.startsWith('56')) return null;
-      return { ...p, zip_code: zipCode };
-    })
-  );
+  // Étape 2 — Filtrer 29/56 via l'adresse de facturation (séquentiel pour éviter le rate limit)
+  const withAddress: any[] = [];
+  for (const p of prospects) {
+    await new Promise(r => setTimeout(r, 100));
+    const zipCode = await getCompanyAddress(p.id);
+    console.log(`Prospect ${p.id} - zip: ${zipCode}`);
+    if (!zipCode) continue;
+    if (!zipCode.startsWith('29') && !zipCode.startsWith('56')) continue;
+    withAddress.push({ ...p, zip_code: zipCode });
+  }
 
-  const filtered29_56 = withAddress.filter(Boolean);
-  if (!filtered29_56.length) return [];
+  if (!withAddress.length) return [];
 
-  // Étape 3 — Récupérer les custom fields pour les 29/56 uniquement
-  const enriched = await Promise.all(
-    filtered29_56.map(async (p: any) => {
-      const customFields = await getCompanyCustomFields(p.id);
-      return { ...p, ...customFields };
-    })
-  );
+  // Étape 3 — Récupérer les custom fields pour les 29/56 uniquement (séquentiel avec délai progressif)
+  const enriched: any[] = [];
+  for (let i = 0; i < withAddress.length; i++) {
+    const p = withAddress[i];
+    await new Promise(r => setTimeout(r, 150));
+    const customFields = await getCompanyCustomFields(p.id);
+    enriched.push({ ...p, ...customFields });
+  }
 
   return enriched;
 }
