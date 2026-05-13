@@ -18,7 +18,6 @@ export async function GET(
     const { id: idParam } = await params;
     const id = parseInt(idParam);
 
-    // Vérifier accès
     const [rows]: any = await pool.execute(
       user.role === 'admin'
         ? `SELECT e.*, u.name AS user_name FROM extractions e JOIN users u ON u.id = e.user_id WHERE e.id = ?`
@@ -32,17 +31,15 @@ export async function GET(
 
     const extraction = rows[0];
 
-    // Prospects
     const [prospects]: any = await pool.execute(
       `SELECT * FROM extraction_prospects WHERE extraction_id = ? ORDER BY company_name`,
       [id]
     );
 
-    // ── CSV ──────────────────────────────────────────────────
     const { searchParams } = new URL(req.url);
     if (searchParams.get('format') === 'csv') {
 
-      // Formate code postal + ville → "29200 Brest"
+      // "29200 Brest"
       const formatVille = (zip: string | null, city: string | null): string => {
         const z = zip?.trim() || null;
         const c = city?.trim() || null;
@@ -50,12 +47,10 @@ export async function GET(
         return [z, c].filter(Boolean).join(' ');
       };
 
-      // Formate téléphone → "02 98 XX XX XX"
-      // Gère +33XXXXXXXXX → 0XXXXXXXXX
+      // "+33298450100" → "02 98 45 01 00"
       const formatPhone = (raw: string | null): string => {
         if (!raw) return '';
         let digits = raw.replace(/\D/g, '');
-        // +33XXXXXXXXX (11 chiffres commençant par 33) → 0XXXXXXXXX
         if (digits.startsWith('33') && digits.length === 11) {
           digits = '0' + digits.slice(2);
         }
@@ -65,6 +60,14 @@ export async function GET(
         return raw;
       };
 
+      // "2024-03-18" → "18/03/2024"
+      const formatDate = (raw: string | null): string => {
+        if (!raw) return '';
+        const d = new Date(raw);
+        if (isNaN(d.getTime())) return '';
+        return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      };
+
       const headers = [
         'Société',
         'Site web',
@@ -72,6 +75,7 @@ export async function GET(
         'Code postal Ville',
         'Téléphone fixe',
         'Téléphone mobile',
+        'Date mailing',
       ];
 
       const lines = [
@@ -83,6 +87,7 @@ export async function GET(
           formatVille(p.zip_code ?? null, p.city ?? null),
           formatPhone(p.phone        ?? null),
           formatPhone(p.phone_mobile ?? null),
+          formatDate(p.date_mailing_before ?? null),
         ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(';')),
       ];
 
