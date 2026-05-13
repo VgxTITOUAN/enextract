@@ -30,9 +30,9 @@ export async function GET() {
     );
 
     return NextResponse.json({
-      prospect_id:    prospect.id,
-      address_id:     prospect.invoicing_address_id,
-      field_test:     { status: res2.status, data: await res2.json() },
+      prospect_id: prospect.id,
+      address_id: prospect.invoicing_address_id,
+      field_test: { status: res2.status, data: await res2.json() },
       addresses_test: { status: res3.status, data: res3.ok ? await res3.json() : await res3.text() },
     });
 
