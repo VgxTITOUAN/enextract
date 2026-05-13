@@ -42,16 +42,23 @@ export async function GET(
     const { searchParams } = new URL(req.url);
     if (searchParams.get('format') === 'csv') {
 
-      // Formate un code postal + ville → "29200 Brest"
+      // Formate code postal + ville → "29200 Brest"
       const formatVille = (zip: string | null, city: string | null): string => {
-        if (!zip && !city) return '';
-        return [zip, city].filter(Boolean).join(' ');
+        const z = zip?.trim() || null;
+        const c = city?.trim() || null;
+        if (!z && !c) return '';
+        return [z, c].filter(Boolean).join(' ');
       };
 
-      // Formate un numéro de téléphone → "02 98 XX XX XX"
+      // Formate téléphone → "02 98 XX XX XX"
+      // Gère +33XXXXXXXXX → 0XXXXXXXXX
       const formatPhone = (raw: string | null): string => {
         if (!raw) return '';
-        const digits = raw.replace(/\D/g, '');
+        let digits = raw.replace(/\D/g, '');
+        // +33XXXXXXXXX (11 chiffres commençant par 33) → 0XXXXXXXXX
+        if (digits.startsWith('33') && digits.length === 11) {
+          digits = '0' + digits.slice(2);
+        }
         if (digits.length === 10) {
           return digits.match(/.{2}/g)!.join(' ');
         }
@@ -79,7 +86,7 @@ export async function GET(
         ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(';')),
       ];
 
-      const csv = '\uFEFF' + lines.join('\n');
+      const csv = '\uFEFF' + 'sep=;\n' + lines.join('\n');
 
       return new NextResponse(csv, {
         headers: {
