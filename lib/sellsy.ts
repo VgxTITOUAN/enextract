@@ -102,6 +102,7 @@ export async function getProspectsEnriched(limit = 100, offset = 0): Promise<any
       },
       body: JSON.stringify({
         filters: { type: 'prospect', is_archived: false },
+        embed:   ['invoicing_address'],
       }),
     }
   );
