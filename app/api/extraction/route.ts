@@ -7,35 +7,39 @@ import { getProspectsEnriched, updateProspect } from '@/lib/sellsy';
 // ─────────────────────────────────────────────────────────────
 //  MOCK MODE — passer à false quand Sellsy est connecté
 // ─────────────────────────────────────────────────────────────
-const MOCK_MODE = false; // ← on passe à false pour utiliser Sellsy
+const MOCK_MODE = false;
 const DRY_RUN   = true;  // ← true = pas de modification dans Sellsy
 
 // ─────────────────────────────────────────────────────────────
-//  CONSTANTES — Vrais codes de champs custom Sellsy confirmés
+//  CONSTANTES — codes champs custom Sellsy confirmés
 // ─────────────────────────────────────────────────────────────
-const CF_DATE_MAILING       = 'datemailling';     // ✅ confirmé
-const CF_DATE_COMMANDE_NOM  = 'datecommandendd';  // ✅ confirmé
-const CF_DATE_FIN_CONTRAT   = 'date-fin-contrat'; // ✅ confirmé
-const CF_DEPARTEMENT        = 'zip_code';         // ⚠️ à confirmer via l'adresse
+const CF_DATE_MAILING      = 'datemailling';
+const CF_DATE_COMMANDE_NOM = 'datecommandendd';
+const CF_DATE_FIN_CONTRAT  = 'date-fin-contrat';
+const CF_DEPARTEMENT       = 'zip_code';
 
 // ─────────────────────────────────────────────────────────────
 //  DONNÉES MOCK
 // ─────────────────────────────────────────────────────────────
 function generateMockProspects(nb: number): any[] {
-  const depts    = ['29', '56', '35', '22'];
+  const depts     = ['29', '56', '35', '22'];
   const companies = ['Dupont SARL', 'Martin & Fils', 'Bretagne Web', 'Finistère Digital', 'Brest Solutions', 'Quimper Tech', 'Morlaix Services', 'Lorient Conseil'];
   const contacts  = ['Marc Leroy', 'Sophie Martin', 'Pierre Dupont', 'Claire Bernard', 'Julien Moreau', 'Isabelle Roux', 'Thomas Petit', 'Amélie Garnier'];
 
   return Array.from({ length: nb }, (_, i) => ({
     id:                        1000 + i,
     name:                      companies[i % companies.length],
+    website:                   `https://www.${companies[i % companies.length].toLowerCase().replace(/\s/g, '')}.fr`,
+    address:                   `${i + 1} rue de la Paix`,
+    city:                      'Quimper',
+    phone:                     `02${String(i).padStart(8, '0')}`,
+    phone_mobile:              i % 3 === 0 ? `06${String(i).padStart(8, '0')}` : null,
     [CF_DEPARTEMENT]:          depts[i % depts.length] + '000',
     [CF_DATE_MAILING]:         i % 3 === 0 ? null : new Date(Date.now() - (i * 400 * 24 * 60 * 60 * 1000)).toISOString().split('T')[0],
     [CF_DATE_COMMANDE_NOM]:    i % 4 === 0 ? null : new Date(Date.now() - (i * 500 * 24 * 60 * 60 * 1000)).toISOString().split('T')[0],
     [CF_DATE_FIN_CONTRAT]:     i % 5 === 0 ? '2025-01-01' : null,
     contact: { name: contacts[i % contacts.length] },
     email:   `contact${i}@prospect.fr`,
-    phone:   `06${String(i).padStart(8, '0')}`,
   }));
 }
 
@@ -66,8 +70,8 @@ function isUnknown(val: any): boolean {
 //  FILTRES MÉTIER
 // ─────────────────────────────────────────────────────────────
 function applyBatch1(prospects: any[], dateSortie: Date): any[] {
-  const limite         = subMonths(dateSortie, 30);
-  const limiteMailing  = subYears(dateSortie, 2);
+  const limite        = subMonths(dateSortie, 30);
+  const limiteMailing = subYears(dateSortie, 2);
 
   return prospects.filter(p => {
     const dept = p[CF_DEPARTEMENT] ?? '';
@@ -145,25 +149,28 @@ async function saveExtraction(
   let nbMaj = 0;
 
   for (let i = 0; i < collected.length; i++) {
-    const prospect  = collected[i];
-    const sellsyOk  = sellsyUpdates[i];
-    const oldDate   = prospect[CF_DATE_MAILING];
+    const prospect = collected[i];
+    const sellsyOk = sellsyUpdates[i];
+    const oldDate  = prospect[CF_DATE_MAILING];
     if (sellsyOk) nbMaj++;
 
     await pool.execute(
       `INSERT INTO extraction_prospects
-       (extraction_id, sellsy_id, company_name, contact_name, email, phone, date_mailing_before, date_mailing_after, sellsy_updated)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (extraction_id, sellsy_id, company_name, website, address, city, phone, phone_mobile,
+        date_mailing_before, date_mailing_after, sellsy_updated)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         extractionId,
         String(prospect.id),
-        prospect.name           ?? '',
-        prospect.contact?.name  ?? '',
-        prospect.email          ?? '',
-        prospect.phone_number   ?? '',
-        oldDate                 ?? null,
-        sellsyOk ? today        : null,
-        sellsyOk ? 1            : 0,
+        prospect.name               ?? '',
+        prospect.website            ?? null,
+        prospect.address            ?? null,
+        prospect.city               ?? null,
+        prospect.phone              ?? null,
+        prospect.phone_mobile       ?? null,
+        oldDate                     ?? null,
+        sellsyOk ? today            : null,
+        sellsyOk ? 1                : 0,
       ]
     );
   }
@@ -203,27 +210,23 @@ export async function POST(req: NextRequest) {
       ? `${date} ${heure || '00:00'}:00`
       : new Date().toISOString().slice(0, 19).replace('T', ' ');
 
-    // ── MOCK MODE ──────────────────────────────────────────────
+    // ── MOCK MODE ─────────────────────────────────────────────
     if (MOCK_MODE) {
-
-      // ── Planifiée ou Récurrente → juste enregistrer le schedule ──
       if (mode === 'planifiee' || mode === 'recurrente') {
         await pool.execute(
           `INSERT INTO schedules (user_id, type, rythme, date_lancement, heure, nb_prospects, actif)
            VALUES (?, ?, ?, ?, ?, ?, 1)`,
           [user.id, mode, rythme ?? null, dateLancement, heure ?? '00:00', nb]
         );
-
         return NextResponse.json({
-          success: true,
+          success:   true,
           scheduled: true,
-          message: mode === 'recurrente'
+          message:   mode === 'recurrente'
             ? 'Récurrence activée — elle se déclenchera automatiquement.'
             : 'Extraction planifiée — elle se déclenchera à la date prévue.',
         });
       }
 
-      // ── Immédiate → extrait maintenant ──
       const mockProspects = generateMockProspects(200);
       let collected: any[] = [];
 
@@ -252,8 +255,6 @@ export async function POST(req: NextRequest) {
       }
 
       collected = collected.slice(0, nb);
-
-      // En mock tous les updates Sellsy sont considérés OK
       const sellsyUpdates = collected.map(() => true);
 
       const { extractionId, nbMaj, status } = await saveExtraction(
@@ -261,17 +262,12 @@ export async function POST(req: NextRequest) {
       );
 
       return NextResponse.json({
-        success: true,
-        extractionId,
-        nbSortie: collected.length,
-        nbMaj,
-        status,
-        manquant: nb - collected.length,
-        mock: true,
+        success: true, extractionId, nbSortie: collected.length,
+        nbMaj, status, manquant: nb - collected.length, mock: true,
       });
     }
 
-    // ── MODE RÉEL ─────────────────────────────────────────────────
+    // ── MODE RÉEL ─────────────────────────────────────────────
     const collected: any[] = [];
     let page = 0;
 
@@ -293,7 +289,9 @@ export async function POST(req: NextRequest) {
       while (collected.length < nb) {
         const enriched = await getProspectsEnriched(100, page * 100);
         if (!enriched.length) break;
-        const filtered = applyBatch2(enriched).filter(p => !collected.find(c => c.id === p.id)).slice(0, Math.min(10, nb - collected.length));
+        const filtered = applyBatch2(enriched)
+          .filter(p => !collected.find(c => c.id === p.id))
+          .slice(0, Math.min(10, nb - collected.length));
         collected.push(...filtered);
         if (filtered.length >= 10 || enriched.length < 100) break;
         page++;
@@ -306,7 +304,9 @@ export async function POST(req: NextRequest) {
       while (collected.length < nb) {
         const enriched = await getProspectsEnriched(100, page * 100);
         if (!enriched.length) break;
-        const filtered = applyBatch3(enriched).filter(p => !collected.find(c => c.id === p.id)).slice(0, Math.min(10, nb - collected.length));
+        const filtered = applyBatch3(enriched)
+          .filter(p => !collected.find(c => c.id === p.id))
+          .slice(0, Math.min(10, nb - collected.length));
         collected.push(...filtered);
         if (filtered.length >= 10 || enriched.length < 100) break;
         page++;
@@ -319,22 +319,23 @@ export async function POST(req: NextRequest) {
       while (collected.length < nb) {
         const enriched = await getProspectsEnriched(100, page * 100);
         if (!enriched.length) break;
-        const filtered = applyBatch4(enriched).filter(p => !collected.find(c => c.id === p.id)).slice(0, nb - collected.length);
+        const filtered = applyBatch4(enriched)
+          .filter(p => !collected.find(c => c.id === p.id))
+          .slice(0, nb - collected.length);
         collected.push(...filtered);
         if (enriched.length < 100) break;
         page++;
       }
     }
 
-    // MàJ Sellsy avec délai entre chaque appel
+    // MàJ Sellsy
     const sellsyUpdates: boolean[] = [];
     for (const prospect of collected) {
       if (DRY_RUN) {
-        // Simule un succès sans toucher Sellsy
         sellsyUpdates.push(true);
         continue;
       }
-      await new Promise(r => setTimeout(r, 200)); // 200ms entre chaque appel
+      await new Promise(r => setTimeout(r, 200));
       const ok = await updateProspect(String(prospect.id), { [CF_DATE_MAILING]: toDateStr(new Date()) });
       sellsyUpdates.push(ok);
     }

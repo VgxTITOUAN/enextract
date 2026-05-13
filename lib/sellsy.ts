@@ -52,8 +52,6 @@ export async function getSellsyToken(): Promise<string> {
 
 // ─────────────────────────────────────────────────────────────
 //  Helper interne — exécute fn sur items en batches parallèles
-//  batchSize : nb d'appels simultanés
-//  delayMs   : pause entre deux batches (respect rate-limit)
 // ─────────────────────────────────────────────────────────────
 async function processBatch<T>(
   items: any[],
@@ -74,22 +72,39 @@ async function processBatch<T>(
 }
 
 // ─────────────────────────────────────────────────────────────
+//  Type — prospect enrichi retourné par getProspectsEnriched
+// ─────────────────────────────────────────────────────────────
+export interface ProspectEnriched {
+  id:               number;
+  name:             string;
+  website:          string | null;
+  zip_code:         string | null;
+  address:          string | null;
+  city:             string | null;
+  phone:            string | null;   // fixe
+  phone_mobile:     string | null;   // mobile
+  // champs custom
+  datemailling:     string | null;
+  datecommandendd:  string | null;
+  'date-fin-contrat': string | null;
+  [key: string]: any;
+}
+
+// ─────────────────────────────────────────────────────────────
 //  GET prospects enrichis — version optimisée
 //
 //  Stratégie :
 //  1. Récupère une page de prospects non archivés
-//  2. Charge UNIQUEMENT les adresses (batch parallèle ×10)
-//  3. Élimine immédiatement tout ce qui n'est pas 29/56
-//     → les custom fields ne sont chargés QUE pour les 29/56
-//  4. Charge les custom fields sur le sous-ensemble restant
-//
-//  Gain : si ~10 % des prospects sont en 29/56, on divise
-//  par ~10 le nombre d'appels custom-fields par page.
+//     → website + téléphones déjà dans la réponse /companies/search
+//  2. Charge les adresses en parallèle (batch ×10)
+//     → filtre 29/56 ICI, élimine tout le reste immédiatement
+//  3. Charge les custom fields UNIQUEMENT sur les 29/56
+//     → gain massif : ~10% de la page passe le filtre dept
 // ─────────────────────────────────────────────────────────────
-export async function getProspectsEnriched(limit = 100, offset = 0): Promise<any[]> {
+export async function getProspectsEnriched(limit = 100, offset = 0): Promise<ProspectEnriched[]> {
   const token = await getSellsyToken();
 
-  // ── Étape 1 : récupération de la page ───────────────────────
+  // ── Étape 1 : page de prospects ─────────────────────────────
   const res = await fetch(
     `${SELLSY_API}/companies/search?limit=${limit}&offset=${offset}`,
     {
@@ -115,41 +130,53 @@ export async function getProspectsEnriched(limit = 100, offset = 0): Promise<any
   const prospects = data.data ?? [];
   if (!prospects.length) return [];
 
-  // ── Étape 2 : adresses en parallèle (batch ×10, 100ms) ──────
-  //    On filtre 29/56 ICI — pas besoin d'aller chercher les
-  //    custom fields pour les prospects hors zone.
+  // ── Étape 2 : adresses + filtre 29/56 ───────────────────────
+  // On récupère aussi rue + ville ici, pas besoin d'un 2e appel
   const withAddressResults = await processBatch(
     prospects,
     async (p: any) => {
-      const zipCode = await getCompanyAddress(p.id);
-      if (!zipCode) return null;
-      if (!zipCode.startsWith('29') && !zipCode.startsWith('56')) return null;
-      return { ...p, zip_code: zipCode };
+      const addr = await getCompanyFullAddress(p.id);
+      if (!addr) return null;
+      if (!addr.zip_code.startsWith('29') && !addr.zip_code.startsWith('56')) return null;
+
+      // website et téléphones sont dans la réponse /companies/search
+      const phone       = p.phone_number        ?? p.phone        ?? null;
+      const phoneMobile = p.mobile_phone_number ?? p.mobile       ?? null;
+      const website     = p.website             ?? null;
+
+      return {
+        ...p,
+        website,
+        phone,
+        phone_mobile:  phoneMobile,
+        zip_code:      addr.zip_code,
+        address:       addr.address,
+        city:          addr.city,
+      };
     },
-    10,  // 10 appels simultanés
-    100  // 100ms entre batches
+    10,
+    100
   );
 
   const inZone = withAddressResults.filter(Boolean) as any[];
   if (!inZone.length) return [];
 
-  // ── Étape 3 : custom fields UNIQUEMENT sur les 29/56 ────────
-  //    Typiquement 5-15 prospects sur 100 → gain massif
+  // ── Étape 3 : custom fields uniquement sur les 29/56 ────────
   const enriched = await processBatch(
     inZone,
     async (p: any) => {
       const customFields = await getCompanyCustomFields(p.id);
-      return { ...p, ...customFields };
+      return { ...p, ...customFields } as ProspectEnriched;
     },
-    10,  // 10 appels simultanés
-    100  // 100ms entre batches
+    10,
+    100
   );
 
-  return enriched.filter(Boolean) as any[];
+  return enriched.filter(Boolean) as ProspectEnriched[];
 }
 
 // ─────────────────────────────────────────────────────────────
-//  GET prospects — paginé (version de base, non enrichie)
+//  GET prospects — paginé simple (non enrichi)
 // ─────────────────────────────────────────────────────────────
 export async function getProspects(limit = 100, offset = 0): Promise<any[]> {
   const token = await getSellsyToken();
@@ -203,24 +230,12 @@ export async function updateProspect(id: string, fields: Record<string, any>): P
 }
 
 // ─────────────────────────────────────────────────────────────
-//  GET prospect par ID
+//  GET adresse complète d'une company
+//  Retourne zip_code, address (rue), city
 // ─────────────────────────────────────────────────────────────
-export async function getProspect(id: string): Promise<any> {
-  const token = await getSellsyToken();
-
-  const res = await fetch(`${SELLSY_API}/prospects/${id}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  if (!res.ok) throw new Error(`Sellsy GET /prospects/${id} failed: ${res.status}`);
-
-  return res.json();
-}
-
-// ─────────────────────────────────────────────────────────────
-//  GET adresse principale d'une company → code postal
-// ─────────────────────────────────────────────────────────────
-export async function getCompanyAddress(companyId: number): Promise<string | null> {
+export async function getCompanyFullAddress(
+  companyId: number
+): Promise<{ zip_code: string; address: string | null; city: string | null } | null> {
   const token = await getSellsyToken();
 
   const res = await fetch(
@@ -231,8 +246,22 @@ export async function getCompanyAddress(companyId: number): Promise<string | nul
   if (!res.ok) return null;
 
   const data    = await res.json();
-  const address = data.data?.[0];
-  return address?.postal_code ?? null;
+  const addr    = data.data?.[0];
+  if (!addr?.postal_code) return null;
+
+  return {
+    zip_code: addr.postal_code          ?? '',
+    address:  addr.address_line_1       ?? null,
+    city:     addr.city                 ?? null,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+//  GET adresse simple — rétrocompat (retourne juste le zip)
+// ─────────────────────────────────────────────────────────────
+export async function getCompanyAddress(companyId: number): Promise<string | null> {
+  const full = await getCompanyFullAddress(companyId);
+  return full?.zip_code ?? null;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -256,4 +285,19 @@ export async function getCompanyCustomFields(id: number): Promise<Record<string,
   }
 
   return fields;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  GET prospect par ID
+// ─────────────────────────────────────────────────────────────
+export async function getProspect(id: string): Promise<any> {
+  const token = await getSellsyToken();
+
+  const res = await fetch(`${SELLSY_API}/prospects/${id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) throw new Error(`Sellsy GET /prospects/${id} failed: ${res.status}`);
+
+  return res.json();
 }
