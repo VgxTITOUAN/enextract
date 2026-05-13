@@ -5,7 +5,7 @@ export async function GET() {
   try {
     const token = await getSellsyToken();
 
-    // Récupérer un prospect
+    // Total prospects non archivés
     const res1 = await fetch(
       'https://api.sellsy.com/v2/companies/search?limit=1',
       {
@@ -15,25 +15,57 @@ export async function GET() {
       }
     );
     const data1 = await res1.json();
-    const prospect = data1?.data?.[0];
+    const totalProspects = data1?.pagination?.total;
 
-    // Essayer GET /v2/companies/{id} avec field=invoicing_address
+    // Total prospects archivés
     const res2 = await fetch(
-      `https://api.sellsy.com/v2/companies/${prospect.id}?field[]=invoicing_address`,
-      { headers: { Authorization: `Bearer ${token}` } }
+      'https://api.sellsy.com/v2/companies/search?limit=1',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filters: { type: 'prospect', is_archived: true } }),
+      }
     );
+    const data2 = await res2.json();
+    const totalArchives = data2?.pagination?.total;
 
-    // Essayer aussi /v2/companies/{id}/addresses
+    // Récupérer 5 prospects et voir leur datemailling
     const res3 = await fetch(
-      `https://api.sellsy.com/v2/companies/${prospect.id}/addresses`,
-      { headers: { Authorization: `Bearer ${token}` } }
+      'https://api.sellsy.com/v2/companies/search?limit=5',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filters: { type: 'prospect', is_archived: false } }),
+      }
+    );
+    const data3 = await res3.json();
+    const prospects = data3?.data ?? [];
+
+    // Récupérer les custom fields des 5 premiers
+    const sample = await Promise.all(
+      prospects.map(async (p: any) => {
+        const res = await fetch(
+          `https://api.sellsy.com/v2/companies/${p.id}/custom-fields`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const cf = res.ok ? await res.json() : {};
+        const fields: any = {};
+        for (const f of cf.data ?? []) fields[f.code] = f.value;
+        return {
+          id:               p.id,
+          name:             p.name,
+          datemailling:     fields['datemailling']     ?? null,
+          datecommandendd:  fields['datecommandendd']  ?? null,
+          date_fin_contrat: fields['date-fin-contrat'] ?? null,
+        };
+      })
     );
 
     return NextResponse.json({
-      prospect_id: prospect.id,
-      address_id: prospect.invoicing_address_id,
-      field_test: { status: res2.status, data: await res2.json() },
-      addresses_test: { status: res3.status, data: res3.ok ? await res3.json() : await res3.text() },
+      total_prospects_non_archives: totalProspects,
+      total_prospects_archives:     totalArchives,
+      limite_2ans:                  new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      sample_5_prospects:           sample,
     });
 
   } catch (error: any) {
