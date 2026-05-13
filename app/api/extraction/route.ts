@@ -67,7 +67,7 @@ function isUnknown(val: any): boolean {
 // ─────────────────────────────────────────────────────────────
 function applyBatch1(prospects: any[], dateSortie: Date): any[] {
   const limite         = subMonths(dateSortie, 30);
-  const limiteMailing  = subYears(new Date(), 2);
+  const limiteMailing  = subYears(dateSortie, 2);
 
   return prospects.filter(p => {
     const dept = p[CF_DEPARTEMENT] ?? '';
@@ -160,7 +160,7 @@ async function saveExtraction(
         prospect.name           ?? '',
         prospect.contact?.name  ?? '',
         prospect.email          ?? '',
-        prospect.phone          ?? '',
+        prospect.phone_number   ?? '',
         oldDate                 ?? null,
         sellsyOk ? today        : null,
         sellsyOk ? 1            : 0,

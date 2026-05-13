@@ -41,6 +41,11 @@ export async function GET(
     // CSV
     const { searchParams } = new URL(req.url);
     if (searchParams.get('format') === 'csv') {
+      const formatDate = (d: any) => {
+        if (!d) return '';
+        return new Date(d).toISOString().split('T')[0];
+      };
+
       const lines = [
         'ID Sellsy;Société;Contact;Email;Téléphone;Date mailing avant;Date mailing après;Sellsy MàJ',
         ...prospects.map((p: any) => [
@@ -49,8 +54,8 @@ export async function GET(
           p.contact_name   ?? '',
           p.email          ?? '',
           p.phone          ?? '',
-          p.date_mailing_before ?? '',
-          p.date_mailing_after  ?? '',
+          formatDate(p.date_mailing_before),
+          formatDate(p.date_mailing_after),
           p.sellsy_updated ? 'Oui' : 'Non',
         ].join(';'))
       ];
