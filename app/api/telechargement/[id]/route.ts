@@ -38,26 +38,45 @@ export async function GET(
       [id]
     );
 
-    // CSV
+    // ── CSV ──────────────────────────────────────────────────
     const { searchParams } = new URL(req.url);
     if (searchParams.get('format') === 'csv') {
-      const formatDate = (d: any) => {
-        if (!d) return '';
-        return new Date(d).toISOString().split('T')[0];
+
+      // Formate un code postal + ville → "29200 Brest"
+      const formatVille = (zip: string | null, city: string | null): string => {
+        if (!zip && !city) return '';
+        return [zip, city].filter(Boolean).join(' ');
       };
 
+      // Formate un numéro de téléphone → "02 98 XX XX XX"
+      const formatPhone = (raw: string | null): string => {
+        if (!raw) return '';
+        const digits = raw.replace(/\D/g, '');
+        if (digits.length === 10) {
+          return digits.match(/.{2}/g)!.join(' ');
+        }
+        return raw;
+      };
+
+      const headers = [
+        'Société',
+        'Site web',
+        'Adresse',
+        'Code postal Ville',
+        'Téléphone fixe',
+        'Téléphone mobile',
+      ];
+
       const lines = [
-        'ID Sellsy;Société;Contact;Email;Téléphone;Date mailing avant;Date mailing après;Sellsy MàJ',
+        headers.join(';'),
         ...prospects.map((p: any) => [
-          p.sellsy_id,
-          p.company_name   ?? '',
-          p.contact_name   ?? '',
-          p.email          ?? '',
-          p.phone          ?? '',
-          formatDate(p.date_mailing_before),
-          formatDate(p.date_mailing_after),
-          p.sellsy_updated ? 'Oui' : 'Non',
-        ].join(';'))
+          p.company_name  ?? '',
+          p.website       ?? '',
+          p.address       ?? '',
+          formatVille(p.zip_code ?? null, p.city ?? null),
+          formatPhone(p.phone        ?? null),
+          formatPhone(p.phone_mobile ?? null),
+        ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(';')),
       ];
 
       const csv = '\uFEFF' + lines.join('\n');
