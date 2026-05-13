@@ -275,11 +275,6 @@ export async function POST(req: NextRequest) {
     const collected: any[] = [];
     let page = 0;
 
-    // LOG TEMPORAIRE — à supprimer après validation
-    const raw = await getProspectsEnriched(100, 0);
-    console.log('Premier prospect enrichi:', JSON.stringify(raw[0], null, 2));
-    console.log('Nb prospects 29/56:', raw.length);
-
     // Batch 1
     while (collected.length < nb) {
       const enriched = await getProspectsEnriched(100, page * 100);
