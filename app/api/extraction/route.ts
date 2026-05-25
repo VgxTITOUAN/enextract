@@ -370,6 +370,12 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (error: any) {
+    if (error.name === 'SellsyQuotaError') {
+      return NextResponse.json(
+        { error: error.message },
+        { status: 503 }
+      );
+    }
     console.error('Extraction error:', error);
     return NextResponse.json({ error: error.message || 'Erreur serveur.' }, { status: 500 });
   }
