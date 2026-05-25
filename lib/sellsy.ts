@@ -157,6 +157,8 @@ export async function getProspectsEnriched(
     };
   });
 
+  console.log(`Page Sellsy — nb brut: ${data.data?.length ?? 0}, nextCursor: ${data.pagination?.offset ?? 'null'}, nb enrichis 29/56: ${enriched.length}`);
+
   return {
     prospects: enriched as ProspectEnriched[],
     nextCursor: safeNextCursor,
