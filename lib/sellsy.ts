@@ -14,6 +14,12 @@ class SellsyQuotaError extends Error {
 const SELLSY_API  = 'https://api.sellsy.com/v2';
 const SELLSY_AUTH = 'https://login.sellsy.com/oauth2/access-tokens';
 
+const SELLSY_CUSTOM_FIELD_IDS = {
+  datemailling:      32239,
+  datecommandendd:   264244,
+  dateFinContrat:    264245,
+};
+
 let cachedToken: { value: string; expiry: number } | null = null;
 
 async function checkQuota(response: Response): Promise<void> {
@@ -77,27 +83,6 @@ export async function getSellsyToken(): Promise<string> {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  Helper batch
-// ─────────────────────────────────────────────────────────────
-async function processBatch<T>(
-  items: any[],
-  fn: (item: any) => Promise<T>,
-  batchSize = 10,
-  delayMs   = 100
-): Promise<(T | null)[]> {
-  const results: (T | null)[] = [];
-  for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize);
-    const res   = await Promise.all(batch.map(fn));
-    results.push(...res);
-    if (i + batchSize < items.length) {
-      await new Promise(r => setTimeout(r, delayMs));
-    }
-  }
-  return results;
-}
-
-// ─────────────────────────────────────────────────────────────
 //  Type prospect enrichi
 // ─────────────────────────────────────────────────────────────
 export interface ProspectEnriched {
@@ -135,6 +120,7 @@ export async function getProspectsEnriched(
       },
       body: JSON.stringify({
         filters: { type: 'prospect', is_archived: false },
+        embed: ['custom_fields', 'invoicing_address'],
       }),
     }
   );
@@ -145,50 +131,60 @@ export async function getProspectsEnriched(
     return getProspectsEnriched(limit, cursor);
   }
 
+  if (res.status === 400) {
+    const err = await res.text();
+    console.log(`Sellsy embed indisponible sur /companies/search: ${res.status} — ${err}`);
+    return { prospects: [], nextCursor: null };
+  }
+
   if (!res.ok) throw new Error(`Sellsy GET /companies/search failed: ${res.status}`);
 
   const data = await res.json();
   const companies = data.data ?? [];
+
+  if (companies.length > 0 && companies.some((prospect: any) => !prospect._embed)) {
+    console.log('Sellsy embed absent dans la réponse /companies/search — page ignorée.');
+    return { prospects: [], nextCursor: null };
+  }
+
   const rawNextCursor = data.pagination?.offset;
   const nextCursor = rawNextCursor !== null && rawNextCursor !== undefined
     ? String(rawNextCursor)
     : null;
   const safeNextCursor = nextCursor !== cursor ? nextCursor : null;
 
-  const withAddr = await processBatch(
-    companies,
-    async (p: any) => {
-      const addr = await getCompanyFullAddress(p.id);
-      return {
-        ...p,
-        website:      p.website             ?? null,
-        phone:        p.phone_number        ?? p.phone  ?? null,
-        phone_mobile: p.mobile_phone_number ?? p.mobile ?? null,
-        zip_code:     addr?.zip_code        ?? null,
-        address:      addr?.address         ?? null,
-        city:         addr?.city            ?? null,
-      };
-    },
-    10,
-    100
-  );
+  const enriched = companies.map((prospect: any) => {
+    const customFields: Record<string, any> = {};
+    const rawCustomFields = prospect._embed?.custom_fields ?? [];
 
-  const enriched = await processBatch(
-    withAddr.filter(Boolean),
-    async (p: any) => {
-      const customFields = await getCompanyCustomFields(p.id);
-      return {
-        ...p,
-        ...customFields,
-        'date-fin-contrat': customFields['date-fin-contrat'] ?? p['date-fin-contrat'] ?? null,
-      };
-    },
-    10,
-    100
-  );
+    for (const cf of rawCustomFields) {
+      customFields[cf.code] = cf.value;
+    }
+
+    const getCustomFieldValue = (code: string, id: number) => {
+      return customFields[code]
+        ?? rawCustomFields.find((cf: any) => Number(cf.id) === id)?.value
+        ?? null;
+    };
+
+    const invoicingAddress = prospect._embed?.invoicing_address;
+
+    return {
+      ...prospect,
+      website:              prospect.website             ?? null,
+      phone:                prospect.phone_number        ?? prospect.phone  ?? null,
+      phone_mobile:         prospect.mobile_phone_number ?? prospect.mobile ?? null,
+      zip_code:             invoicingAddress?.postal_code ?? null,
+      address:              invoicingAddress?.address_line_1 ?? null,
+      city:                 invoicingAddress?.city ?? null,
+      datemailling:         getCustomFieldValue('datemailling', SELLSY_CUSTOM_FIELD_IDS.datemailling),
+      datecommandendd:      getCustomFieldValue('datecommandendd', SELLSY_CUSTOM_FIELD_IDS.datecommandendd),
+      'date-fin-contrat':   getCustomFieldValue('date-fin-contrat', SELLSY_CUSTOM_FIELD_IDS.dateFinContrat),
+    };
+  });
 
   return {
-    prospects: enriched.filter(Boolean) as ProspectEnriched[],
+    prospects: enriched as ProspectEnriched[],
     nextCursor: safeNextCursor,
   };
 }
@@ -285,36 +281,6 @@ export async function getCompanyFullAddress(
     address:  addr.address_line_1 ?? null,
     city:     addr.city           ?? null,
   };
-}
-
-// Rétrocompat
-export async function getCompanyAddress(companyId: number): Promise<string | null> {
-  const full = await getCompanyFullAddress(companyId);
-  return full?.zip_code ?? null;
-}
-
-// ─────────────────────────────────────────────────────────────
-//  GET champs custom depuis Sellsy (utilisé par /api/sellsy-sync)
-// ─────────────────────────────────────────────────────────────
-export async function getCompanyCustomFields(id: number): Promise<Record<string, any>> {
-  const token = await getSellsyToken();
-
-  const res = await fetch(
-    `${SELLSY_API}/companies/${id}/custom-fields`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-  await checkQuota(res);
-
-  if (!res.ok) return {};
-
-  const data   = await res.json();
-  const fields: Record<string, any> = {};
-
-  for (const field of data.data ?? []) {
-    fields[field.code] = field.value;
-  }
-
-  return fields;
 }
 
 // ─────────────────────────────────────────────────────────────
