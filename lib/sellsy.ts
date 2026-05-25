@@ -107,7 +107,7 @@ export async function getProspectsEnriched(
   limit = 100,
   cursor: string | null = null
 ): Promise<{ prospects: ProspectEnriched[]; nextCursor: string | null }> {
-  const url = `${SELLSY_API}/companies/search?limit=${limit}${cursor ? `&after=${encodeURIComponent(cursor)}` : ''}&embed[]=cf.32239&embed[]=cf.264244&embed[]=cf.264245&embed[]=invoicing_address`;
+  const url = `${SELLSY_API}/companies/search?limit=${limit}${cursor ? `&after=${cursor}` : ''}&embed[]=...`;
   const token = await getSellsyToken();
 
   const res = await fetch(
