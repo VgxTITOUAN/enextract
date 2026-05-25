@@ -11,10 +11,37 @@
 
 import pool from '@/lib/db';
 
+class SellsyQuotaError extends Error {
+  constructor(public type: 'day', message: string) {
+    super(message);
+    this.name = 'SellsyQuotaError';
+  }
+}
+
 const SELLSY_API  = 'https://api.sellsy.com/v2';
 const SELLSY_AUTH = 'https://login.sellsy.com/oauth2/access-tokens';
 
 let cachedToken: { value: string; expiry: number } | null = null;
+
+async function checkQuota(response: Response): Promise<void> {
+  const bySecond = parseInt(response.headers.get('X-Quota-Remaining-By-Second') ?? '999');
+  const byMinute = parseInt(response.headers.get('X-Quota-Remaining-By-Minute') ?? '999');
+  const byDay    = parseInt(response.headers.get('X-Quota-Remaining-By-Day')    ?? '999');
+
+  console.log(`Quota — seconde: ${bySecond} | minute: ${byMinute} | jour: ${byDay}`);
+
+  if (byDay <= 100) {
+    throw new SellsyQuotaError('day', `Quota journalier Sellsy presque épuisé (${byDay} restants). Extraction stoppée pour protéger les données.`);
+  }
+
+  if (bySecond <= 5) {
+    console.log('Quota/seconde critique — pause 60s');
+    await new Promise(r => setTimeout(r, 60_000));
+  } else if (byMinute <= 30) {
+    console.log('Quota/minute critique — pause 60s');
+    await new Promise(r => setTimeout(r, 60_000));
+  }
+}
 
 // ─────────────────────────────────────────────────────────────
 //  Auth Sellsy
@@ -40,6 +67,7 @@ export async function getSellsyToken(): Promise<string> {
       client_secret: clientSecret,
     }),
   });
+  await checkQuota(res);
 
   if (!res.ok) {
     const err = await res.text();
@@ -138,6 +166,7 @@ export async function getProspects(limit = 100, offset = 0): Promise<any[]> {
       }),
     }
   );
+  await checkQuota(res);
 
   if (res.status === 429) {
     await new Promise(r => setTimeout(r, 2000));
@@ -165,6 +194,7 @@ export async function updateProspect(id: string, fields: Record<string, any>): P
     },
     body: JSON.stringify(fields),
   });
+  await checkQuota(res);
 
   if (res.status === 429) {
     await new Promise(r => setTimeout(r, 2000));
@@ -196,6 +226,7 @@ export async function getCompanyFullAddress(
     `${SELLSY_API}/companies/${companyId}/addresses`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
+  await checkQuota(res);
 
   if (!res.ok) return null;
 
@@ -226,6 +257,7 @@ export async function getCompanyCustomFields(id: number): Promise<Record<string,
     `${SELLSY_API}/companies/${id}/custom-fields`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
+  await checkQuota(res);
 
   if (!res.ok) return {};
 
@@ -248,6 +280,7 @@ export async function getProspect(id: string): Promise<any> {
   const res = await fetch(`${SELLSY_API}/prospects/${id}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
+  await checkQuota(res);
 
   if (!res.ok) throw new Error(`Sellsy GET /prospects/${id} failed: ${res.status}`);
 

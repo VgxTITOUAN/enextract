@@ -53,6 +53,11 @@ export default function ExtractionPage() {
 
       const data = await res.json();
 
+      if (res.status === 503) {
+        showToast(data.error, 'warning');
+        return;
+      }
+
       if (!res.ok) {
         showToast(data.error || 'Erreur lors de l\'extraction.', 'error');
         return;
