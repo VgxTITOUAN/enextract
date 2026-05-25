@@ -107,7 +107,7 @@ export async function getProspectsEnriched(
   limit = 100,
   cursor: string | null = null
 ): Promise<{ prospects: ProspectEnriched[]; nextCursor: string | null }> {
-  const url = `${SELLSY_API}/companies/search?limit=${limit}${cursor ? `&after=${encodeURIComponent(cursor)}` : ''}`;
+  const url = `${SELLSY_API}/companies/search?limit=${limit}${cursor ? `&after=${encodeURIComponent(cursor)}` : ''}&embed[]=cf.32239&embed[]=cf.264244&embed[]=cf.264245&embed[]=invoicing_address`;
   const token = await getSellsyToken();
 
   const res = await fetch(
@@ -120,7 +120,6 @@ export async function getProspectsEnriched(
       },
       body: JSON.stringify({
         filters: { type: 'prospect', is_archived: false },
-        embed: ['custom_fields', 'invoicing_address'],
       }),
     }
   );
@@ -131,21 +130,10 @@ export async function getProspectsEnriched(
     return getProspectsEnriched(limit, cursor);
   }
 
-  if (res.status === 400) {
-    const err = await res.text();
-    console.log(`Sellsy embed indisponible sur /companies/search: ${res.status} — ${err}`);
-    return { prospects: [], nextCursor: null };
-  }
-
   if (!res.ok) throw new Error(`Sellsy GET /companies/search failed: ${res.status}`);
 
   const data = await res.json();
   const companies = data.data ?? [];
-
-  if (companies.length > 0 && companies.some((prospect: any) => !prospect._embed)) {
-    console.log('Sellsy embed absent dans la réponse /companies/search — page ignorée.');
-    return { prospects: [], nextCursor: null };
-  }
 
   const rawNextCursor = data.pagination?.offset;
   const nextCursor = rawNextCursor !== null && rawNextCursor !== undefined
@@ -154,32 +142,18 @@ export async function getProspectsEnriched(
   const safeNextCursor = nextCursor !== cursor ? nextCursor : null;
 
   const enriched = companies.map((prospect: any) => {
-    const customFields: Record<string, any> = {};
-    const rawCustomFields = prospect._embed?.custom_fields ?? [];
-
-    for (const cf of rawCustomFields) {
-      customFields[cf.code] = cf.value;
-    }
-
-    const getCustomFieldValue = (code: string, id: number) => {
-      return customFields[code]
-        ?? rawCustomFields.find((cf: any) => Number(cf.id) === id)?.value
-        ?? null;
-    };
-
-    const invoicingAddress = prospect._embed?.invoicing_address;
+    const customFields = prospect._embed?.custom_fields ?? [];
+    const datemailling    = customFields.find((cf: any) => cf.id === SELLSY_CUSTOM_FIELD_IDS.datemailling)?.value ?? null;
+    const datecommandendd = customFields.find((cf: any) => cf.id === SELLSY_CUSTOM_FIELD_IDS.datecommandendd)?.value ?? null;
+    const dateFinContrat  = customFields.find((cf: any) => cf.id === SELLSY_CUSTOM_FIELD_IDS.dateFinContrat)?.value ?? null;
+    const zipCode         = prospect._embed?.invoicing_address?.postal_code ?? null;
 
     return {
       ...prospect,
-      website:              prospect.website             ?? null,
-      phone:                prospect.phone_number        ?? prospect.phone  ?? null,
-      phone_mobile:         prospect.mobile_phone_number ?? prospect.mobile ?? null,
-      zip_code:             invoicingAddress?.postal_code ?? null,
-      address:              invoicingAddress?.address_line_1 ?? null,
-      city:                 invoicingAddress?.city ?? null,
-      datemailling:         getCustomFieldValue('datemailling', SELLSY_CUSTOM_FIELD_IDS.datemailling),
-      datecommandendd:      getCustomFieldValue('datecommandendd', SELLSY_CUSTOM_FIELD_IDS.datecommandendd),
-      'date-fin-contrat':   getCustomFieldValue('date-fin-contrat', SELLSY_CUSTOM_FIELD_IDS.dateFinContrat),
+      zip_code:           zipCode,
+      datemailling:       datemailling,
+      datecommandendd:    datecommandendd,
+      'date-fin-contrat': dateFinContrat,
     };
   });
 
