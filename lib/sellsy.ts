@@ -139,7 +139,7 @@ export async function getProspectsEnriched(
   const nextCursor = rawNextCursor !== null && rawNextCursor !== undefined
     ? String(rawNextCursor)
     : null;
-  const safeNextCursor = nextCursor !== cursor ? nextCursor : null;
+  const safeNextCursor = nextCursor;
 
   const enriched = companies.map((prospect: any) => {
     const customFields = prospect._embed?.custom_fields ?? [];
