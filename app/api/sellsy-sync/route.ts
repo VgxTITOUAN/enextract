@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth';
 import pool from '@/lib/db';
-import { getSellsyToken, getCompanyFullAddress, getCompanyCustomFields } from '@/lib/sellsy';
+import { getSellsyToken } from '@/lib/sellsy';
 
 // ─────────────────────────────────────────────────────────────
 //  POST /api/sellsy-sync
@@ -16,23 +16,40 @@ import { getSellsyToken, getCompanyFullAddress, getCompanyCustomFields } from '@
 const SELLSY_API = 'https://api.sellsy.com/v2';
 const PAGE_SIZE  = 100;
 
-// Helper batch parallèle
-async function processBatch<T>(
-  items: any[],
-  fn: (item: any) => Promise<T>,
-  batchSize = 10,
-  delayMs   = 100
-): Promise<(T | null)[]> {
-  const results: (T | null)[] = [];
-  for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize);
-    const res   = await Promise.all(batch.map(fn));
-    results.push(...res);
-    if (i + batchSize < items.length) {
-      await new Promise(r => setTimeout(r, delayMs));
-    }
+const SELLSY_CUSTOM_FIELD_IDS = {
+  datemailling:      32239,
+  datecommandendd:   264244,
+  dateFinContrat:    264245,
+};
+
+function enrichFromEmbed(prospect: any) {
+  const customFields: Record<string, any> = {};
+  const rawCustomFields = prospect._embed?.custom_fields ?? [];
+
+  for (const cf of rawCustomFields) {
+    customFields[cf.code] = cf.value;
   }
-  return results;
+
+  const getCustomFieldValue = (code: string, id: number) => {
+    return customFields[code]
+      ?? rawCustomFields.find((cf: any) => Number(cf.id) === id)?.value
+      ?? null;
+  };
+
+  const invoicingAddress = prospect._embed?.invoicing_address;
+
+  return {
+    ...prospect,
+    website:            prospect.website             ?? null,
+    phone:              prospect.phone_number        ?? prospect.phone  ?? null,
+    phone_mobile:       prospect.mobile_phone_number ?? prospect.mobile ?? null,
+    zip_code:           invoicingAddress?.postal_code ?? null,
+    address:            invoicingAddress?.address_line_1 ?? null,
+    city:               invoicingAddress?.city ?? null,
+    datemailling:       getCustomFieldValue('datemailling', SELLSY_CUSTOM_FIELD_IDS.datemailling),
+    datecommandendd:    getCustomFieldValue('datecommandendd', SELLSY_CUSTOM_FIELD_IDS.datecommandendd),
+    'date-fin-contrat': getCustomFieldValue('date-fin-contrat', SELLSY_CUSTOM_FIELD_IDS.dateFinContrat),
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -65,6 +82,7 @@ export async function POST(req: NextRequest) {
           },
           body: JSON.stringify({
             filters: { type: 'prospect', is_archived: false },
+            embed: ['custom_fields', 'invoicing_address'],
           }),
         }
       );
@@ -81,34 +99,7 @@ export async function POST(req: NextRequest) {
       const data      = await res.json();
       const prospects = data.data ?? [];
       if (!prospects.length) { hasMore = false; break; }
-
-      // ── Adresses en parallèle ─────────────────────────────────
-      const withAddr = await processBatch(
-        prospects,
-        async (p: any) => {
-          const addr = await getCompanyFullAddress(p.id);
-          return {
-            ...p,
-            website:      p.website ?? null,
-            phone:        p.phone_number        ?? p.phone        ?? null,
-            phone_mobile: p.mobile_phone_number ?? p.mobile       ?? null,
-            zip_code:     addr?.zip_code  ?? null,
-            address:      addr?.address   ?? null,
-            city:         addr?.city      ?? null,
-          };
-        },
-        10, 100
-      );
-
-      // ── Custom fields en parallèle ────────────────────────────
-      const enriched = await processBatch(
-        withAddr.filter(Boolean),
-        async (p: any) => {
-          const cf = await getCompanyCustomFields(p.id);
-          return { ...p, ...cf };
-        },
-        10, 100
-      );
+      const enriched = prospects.map(enrichFromEmbed);
 
       // ── UPSERT en BDD ─────────────────────────────────────────
       for (const p of enriched.filter(Boolean) as any[]) {
