@@ -170,62 +170,62 @@ async function runScheduledExtraction(schedule: any) {
 
   try {
     const collected: any[] = [];
-    let page = 0;
+    let cursor: string | null = null;
 
     // Batch 1
     while (collected.length < nb) {
-      const enriched = await getProspectsEnriched(100, page * 100);
+      const { prospects: enriched, nextCursor } = await getProspectsEnriched(100, cursor);
+      cursor = nextCursor;
       if (!enriched.length) break;
       const filtered = applyBatch1(enriched, dateSortie)
         .filter(p => !collected.find((c: any) => c.id === p.id))
         .slice(0, nb - collected.length);
       collected.push(...filtered);
-      page++;
-      if (enriched.length < 100) break;
+      if (cursor === null) break;
     }
 
     // Batch 2
     if (collected.length < nb) {
-      page = 0;
+      cursor = null;
       while (collected.length < nb) {
-        const enriched = await getProspectsEnriched(100, page * 100);
+        const { prospects: enriched, nextCursor } = await getProspectsEnriched(100, cursor);
+        cursor = nextCursor;
         if (!enriched.length) break;
         const filtered = applyBatch2(enriched)
           .filter(p => !collected.find(c => c.id === p.id))
           .slice(0, Math.min(10, nb - collected.length));
         collected.push(...filtered);
-        if (filtered.length >= 10 || enriched.length < 100) break;
-        page++;
+        if (filtered.length >= 10 || cursor === null) break;
       }
     }
 
     // Batch 3
     if (collected.length < nb) {
-      page = 0;
+      cursor = null;
       while (collected.length < nb) {
-        const enriched = await getProspectsEnriched(100, page * 100);
+        const { prospects: enriched, nextCursor } = await getProspectsEnriched(100, cursor);
+        cursor = nextCursor;
         if (!enriched.length) break;
         const filtered = applyBatch3(enriched)
           .filter(p => !collected.find(c => c.id === p.id))
           .slice(0, Math.min(10, nb - collected.length));
         collected.push(...filtered);
-        if (filtered.length >= 10 || enriched.length < 100) break;
-        page++;
+        if (filtered.length >= 10 || cursor === null) break;
       }
     }
 
     // Batch 4
     if (collected.length < nb) {
-      page = 0;
+      cursor = null;
       while (collected.length < nb) {
-        const enriched = await getProspectsEnriched(100, page * 100);
+        const { prospects: enriched, nextCursor } = await getProspectsEnriched(100, cursor);
+        cursor = nextCursor;
         if (!enriched.length) break;
         const filtered = applyBatch4(enriched)
           .filter(p => !collected.find(c => c.id === p.id))
           .slice(0, nb - collected.length);
         collected.push(...filtered);
-        if (enriched.length < 100) break;
-        page++;
+        if (cursor === null) break;
       }
     }
 

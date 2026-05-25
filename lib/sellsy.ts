@@ -1,12 +1,5 @@
 // ─────────────────────────────────────────────────────────────
-//  lib/sellsy.ts — version avec cache BDD
-//
-//  getProspectsEnriched lit depuis sellsy_cache (MariaDB)
-//  → extraction < 1 seconde au lieu de 2-3 minutes
-//
-//  Les fonctions Sellsy directes (getSellsyToken, updateProspect,
-//  getCompanyFullAddress, getCompanyCustomFields) restent
-//  inchangées — utilisées uniquement par /api/sellsy-sync
+//  lib/sellsy.ts — accès API Sellsy
 // ─────────────────────────────────────────────────────────────
 
 import pool from '@/lib/db';
@@ -123,28 +116,81 @@ export interface ProspectEnriched {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  GET prospects enrichis — LIT DEPUIS LE CACHE BDD
-//  ⚡ < 1ms pour n'importe quel volume
+//  GET prospects enrichis — pagination par curseur Sellsy
 // ─────────────────────────────────────────────────────────────
-export async function getProspectsEnriched(limit = 100, offset = 0): Promise<ProspectEnriched[]> {
-  const [rows]: any = await pool.execute(
-    `SELECT
-       id, name, website, zip_code, address, city,
-       phone, phone_mobile,
-       datemailling, datecommandendd, date_fin_contrat
-     FROM sellsy_cache
-     WHERE zip_code IS NOT NULL
-       AND (zip_code LIKE '29%' OR zip_code LIKE '56%')
-     ORDER BY id
-     LIMIT ? OFFSET ?`,
-    [limit, offset]
+export async function getProspectsEnriched(
+  limit = 100,
+  cursor: string | null = null
+): Promise<{ prospects: ProspectEnriched[]; nextCursor: string | null }> {
+  const url = `${SELLSY_API}/companies/search?limit=${limit}${cursor ? `&after=${encodeURIComponent(cursor)}` : ''}`;
+  const token = await getSellsyToken();
+
+  const res = await fetch(
+    url,
+    {
+      method:  'POST',
+      headers: {
+        Authorization:  `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        filters: { type: 'prospect', is_archived: false },
+      }),
+    }
+  );
+  await checkQuota(res);
+
+  if (res.status === 429) {
+    await new Promise(r => setTimeout(r, 2000));
+    return getProspectsEnriched(limit, cursor);
+  }
+
+  if (!res.ok) throw new Error(`Sellsy GET /companies/search failed: ${res.status}`);
+
+  const data = await res.json();
+  const companies = data.data ?? [];
+  const rawNextCursor = data.pagination?.offset;
+  const nextCursor = rawNextCursor !== null && rawNextCursor !== undefined
+    ? String(rawNextCursor)
+    : null;
+  const safeNextCursor = nextCursor !== cursor ? nextCursor : null;
+
+  const withAddr = await processBatch(
+    companies,
+    async (p: any) => {
+      const addr = await getCompanyFullAddress(p.id);
+      return {
+        ...p,
+        website:      p.website             ?? null,
+        phone:        p.phone_number        ?? p.phone  ?? null,
+        phone_mobile: p.mobile_phone_number ?? p.mobile ?? null,
+        zip_code:     addr?.zip_code        ?? null,
+        address:      addr?.address         ?? null,
+        city:         addr?.city            ?? null,
+      };
+    },
+    10,
+    100
   );
 
-  // Normalise date_fin_contrat → clé avec tiret pour compatibilité filtres métier
-  return rows.map((r: any) => ({
-    ...r,
-    'date-fin-contrat': r.date_fin_contrat ?? null,
-  })) as ProspectEnriched[];
+  const enriched = await processBatch(
+    withAddr.filter(Boolean),
+    async (p: any) => {
+      const customFields = await getCompanyCustomFields(p.id);
+      return {
+        ...p,
+        ...customFields,
+        'date-fin-contrat': customFields['date-fin-contrat'] ?? p['date-fin-contrat'] ?? null,
+      };
+    },
+    10,
+    100
+  );
+
+  return {
+    prospects: enriched.filter(Boolean) as ProspectEnriched[],
+    nextCursor: safeNextCursor,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────

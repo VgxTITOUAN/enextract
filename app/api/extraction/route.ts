@@ -128,63 +128,87 @@ function applyBatch4(prospects: any[]): any[] {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  HELPER — enregistrement extraction + prospects en BDD
+//  HELPERS — checkpoints extraction
 // ─────────────────────────────────────────────────────────────
-async function saveExtraction(
+async function createExtraction(
   userId: number,
   mode: string,
   dateLancement: string,
-  nb: number,
-  collected: any[],
-  sellsyUpdates: boolean[]
-) {
+  nb: number
+): Promise<number> {
   const [result]: any = await pool.execute(
     `INSERT INTO extractions (user_id, type, date_lancement, nb_demande, nb_sortie, status)
-     VALUES (?, ?, ?, ?, ?, 'pending')`,
-    [userId, mode, dateLancement, nb, collected.length]
+     VALUES (?, ?, ?, ?, 0, 'pending')`,
+    [userId, mode, dateLancement, nb]
   );
 
-  const extractionId = result.insertId;
+  return result.insertId;
+}
+
+async function insertProspectCheckpoint(
+  extractionId: number,
+  prospect: any,
+  sellsyOk: boolean,
+  today: string
+) {
+  await pool.execute(
+    `INSERT INTO extraction_prospects
+     (extraction_id, sellsy_id, company_name, website, address, city, phone, phone_mobile,
+      date_mailing_before, date_mailing_after, sellsy_updated)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      extractionId,
+      String(prospect.id),
+      prospect.name               ?? '',
+      prospect.website            ?? null,
+      prospect.address            ?? null,
+      prospect.city               ?? null,
+      prospect.phone              ?? null,
+      prospect.phone_mobile       ?? null,
+      prospect[CF_DATE_MAILING]   ?? null,
+      sellsyOk ? today            : null,
+      sellsyOk ? 1                : 0,
+    ]
+  );
+}
+
+async function updateExtractionCheckpoint(
+  extractionId: number,
+  nbSortie: number,
+  nbMaj: number,
+  status = 'pending'
+) {
+  await pool.execute(
+    `UPDATE extractions SET nb_sortie = ?, nb_maj_sellsy = ?, status = ? WHERE id = ?`,
+    [nbSortie, nbMaj, status, extractionId]
+  );
+}
+
+function getFinalStatus(nbSortie: number, nbDemande: number): 'done' | 'partial' | 'error' {
+  if (nbSortie === 0) return 'error';
+  return nbSortie >= nbDemande ? 'done' : 'partial';
+}
+
+async function checkpointPage(
+  extractionId: number,
+  pageProspects: any[]
+): Promise<number> {
   const today = toDateStr(new Date());
   let nbMaj = 0;
 
-  for (let i = 0; i < collected.length; i++) {
-    const prospect = collected[i];
-    const sellsyOk = sellsyUpdates[i];
-    const oldDate  = prospect[CF_DATE_MAILING];
-    if (sellsyOk) nbMaj++;
+  for (const prospect of pageProspects) {
+    let sellsyOk = true;
 
-    await pool.execute(
-      `INSERT INTO extraction_prospects
-       (extraction_id, sellsy_id, company_name, website, address, city, phone, phone_mobile,
-        date_mailing_before, date_mailing_after, sellsy_updated)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        extractionId,
-        String(prospect.id),
-        prospect.name               ?? '',
-        prospect.website            ?? null,
-        prospect.address            ?? null,
-        prospect.city               ?? null,
-        prospect.phone              ?? null,
-        prospect.phone_mobile       ?? null,
-        oldDate                     ?? null,
-        sellsyOk ? today            : null,
-        sellsyOk ? 1                : 0,
-      ]
-    );
+    if (!DRY_RUN) {
+      await new Promise(r => setTimeout(r, 200));
+      sellsyOk = await updateProspect(String(prospect.id), { [CF_DATE_MAILING]: today });
+    }
+
+    if (sellsyOk) nbMaj++;
+    await insertProspectCheckpoint(extractionId, prospect, sellsyOk, today);
   }
 
-  const status = collected.length === 0 ? 'error'
-    : collected.length < nb ? 'partial'
-    : 'done';
-
-  await pool.execute(
-    `UPDATE extractions SET nb_sortie = ?, nb_maj_sellsy = ?, status = ? WHERE id = ?`,
-    [collected.length, nbMaj, status, extractionId]
-  );
-
-  return { extractionId, nbMaj, status };
+  return nbMaj;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -210,64 +234,6 @@ export async function POST(req: NextRequest) {
       ? `${date} ${heure || '00:00'}:00`
       : new Date().toISOString().slice(0, 19).replace('T', ' ');
 
-    // ── MOCK MODE ─────────────────────────────────────────────
-    if (MOCK_MODE) {
-      if (mode === 'planifiee' || mode === 'recurrente') {
-        await pool.execute(
-          `INSERT INTO schedules (user_id, type, rythme, date_lancement, heure, nb_prospects, actif)
-           VALUES (?, ?, ?, ?, ?, ?, 1)`,
-          [user.id, mode, rythme ?? null, dateLancement, heure ?? '00:00', nb]
-        );
-        return NextResponse.json({
-          success:   true,
-          scheduled: true,
-          message:   mode === 'recurrente'
-            ? 'Récurrence activée — elle se déclenchera automatiquement.'
-            : 'Extraction planifiée — elle se déclenchera à la date prévue.',
-        });
-      }
-
-      const mockProspects = generateMockProspects(200);
-      let collected: any[] = [];
-
-      const b1 = applyBatch1(mockProspects, dateSortie);
-      collected.push(...b1);
-
-      if (collected.length < nb) {
-        const b2 = applyBatch2(mockProspects)
-          .filter(p => !collected.find(c => c.id === p.id))
-          .slice(0, Math.min(10, nb - collected.length));
-        collected.push(...b2);
-      }
-
-      if (collected.length < nb) {
-        const b3 = applyBatch3(mockProspects)
-          .filter(p => !collected.find(c => c.id === p.id))
-          .slice(0, Math.min(10, nb - collected.length));
-        collected.push(...b3);
-      }
-
-      if (collected.length < nb) {
-        const b4 = applyBatch4(mockProspects)
-          .filter(p => !collected.find(c => c.id === p.id))
-          .slice(0, nb - collected.length);
-        collected.push(...b4);
-      }
-
-      collected = collected.slice(0, nb);
-      const sellsyUpdates = collected.map(() => true);
-
-      const { extractionId, nbMaj, status } = await saveExtraction(
-        user.id, mode, dateLancement, nb, collected, sellsyUpdates
-      );
-
-      return NextResponse.json({
-        success: true, extractionId, nbSortie: collected.length,
-        nbMaj, status, manquant: nb - collected.length, mock: true,
-      });
-    }
-
-    // ── MODE RÉEL ─────────────────────────────────────────────
     // Planifiée ou récurrente → enregistrer en BDD, pas d'extraction immédiate
     if (mode === 'planifiee' || mode === 'recurrente') {
       await pool.execute(
@@ -284,81 +250,107 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    const extractionId = await createExtraction(user.id, mode, dateLancement, nb);
     const collected: any[] = [];
-    let page = 0;
+    const collectedIds = new Set<string>();
+    let nbMaj = 0;
 
-    // Batch 1
-    while (collected.length < nb) {
-      const enriched = await getProspectsEnriched(100, page * 100);
-      if (!enriched.length) break;
-      const filtered = applyBatch1(enriched, dateSortie)
-        .filter(p => !collected.find((c: any) => c.id === p.id))
+    async function checkpointEligiblePage(pageProspects: any[]) {
+      if (pageProspects.length > 0) {
+        const pageNbMaj = await checkpointPage(extractionId, pageProspects);
+        nbMaj += pageNbMaj;
+        collected.push(...pageProspects);
+        pageProspects.forEach(p => collectedIds.add(String(p.id)));
+      }
+
+      await updateExtractionCheckpoint(extractionId, collected.length, nbMaj);
+    }
+
+    async function processMockPage(page: any[]) {
+      const batch1 = applyBatch1(page, dateSortie)
+        .filter(p => !collectedIds.has(String(p.id)))
         .slice(0, nb - collected.length);
-      collected.push(...filtered);
-      page++;
-      if (enriched.length < 100) break;
-    }
+      await checkpointEligiblePage(batch1);
 
-    // Batch 2
-    if (collected.length < nb) {
-      page = 0;
-      while (collected.length < nb) {
-        const enriched = await getProspectsEnriched(100, page * 100);
-        if (!enriched.length) break;
-        const filtered = applyBatch2(enriched)
-          .filter(p => !collected.find(c => c.id === p.id))
+      if (collected.length < nb) {
+        const batch2 = applyBatch2(page)
+          .filter(p => !collectedIds.has(String(p.id)))
           .slice(0, Math.min(10, nb - collected.length));
-        collected.push(...filtered);
-        if (filtered.length >= 10 || enriched.length < 100) break;
-        page++;
+        await checkpointEligiblePage(batch2);
       }
-    }
 
-    // Batch 3
-    if (collected.length < nb) {
-      page = 0;
-      while (collected.length < nb) {
-        const enriched = await getProspectsEnriched(100, page * 100);
-        if (!enriched.length) break;
-        const filtered = applyBatch3(enriched)
-          .filter(p => !collected.find(c => c.id === p.id))
+      if (collected.length < nb) {
+        const batch3 = applyBatch3(page)
+          .filter(p => !collectedIds.has(String(p.id)))
           .slice(0, Math.min(10, nb - collected.length));
-        collected.push(...filtered);
-        if (filtered.length >= 10 || enriched.length < 100) break;
-        page++;
+        await checkpointEligiblePage(batch3);
       }
-    }
 
-    // Batch 4
-    if (collected.length < nb) {
-      page = 0;
-      while (collected.length < nb) {
-        const enriched = await getProspectsEnriched(100, page * 100);
-        if (!enriched.length) break;
-        const filtered = applyBatch4(enriched)
-          .filter(p => !collected.find(c => c.id === p.id))
+      if (collected.length < nb) {
+        const batch4 = applyBatch4(page)
+          .filter(p => !collectedIds.has(String(p.id)))
           .slice(0, nb - collected.length);
-        collected.push(...filtered);
-        if (enriched.length < 100) break;
-        page++;
+        await checkpointEligiblePage(batch4);
       }
     }
 
-    // MàJ Sellsy
-    const sellsyUpdates: boolean[] = [];
-    for (const prospect of collected) {
-      if (DRY_RUN) {
-        sellsyUpdates.push(true);
-        continue;
-      }
-      await new Promise(r => setTimeout(r, 200));
-      const ok = await updateProspect(String(prospect.id), { [CF_DATE_MAILING]: toDateStr(new Date()) });
-      sellsyUpdates.push(ok);
+    async function processSellsyBatch(
+      filterFn: (prospects: any[]) => any[],
+      maxBatchCount: number | null = null
+    ) {
+      let cursor: string | null = null;
+      let batchCount = 0;
+
+      do {
+        const { prospects: page, nextCursor } = await getProspectsEnriched(100, cursor);
+        cursor = nextCursor;
+
+        const remainingExtraction = nb - collected.length;
+        const remainingBatch = maxBatchCount === null
+          ? remainingExtraction
+          : Math.min(maxBatchCount - batchCount, remainingExtraction);
+
+        if (page.length > 0 && remainingExtraction > 0 && remainingBatch > 0) {
+          const eligible = filterFn(page)
+            .filter(p => !collectedIds.has(String(p.id)))
+            .slice(0, remainingBatch);
+
+          batchCount += eligible.length;
+          await checkpointEligiblePage(eligible);
+        } else {
+          await checkpointEligiblePage([]);
+        }
+
+        if (collected.length >= nb) break;
+        if (maxBatchCount !== null && batchCount >= maxBatchCount) break;
+      } while (cursor !== null);
     }
 
-    const { extractionId, nbMaj, status } = await saveExtraction(
-      user.id, mode, dateLancement, nb, collected, sellsyUpdates
-    );
+    // ── MOCK MODE ─────────────────────────────────────────────
+    if (MOCK_MODE) {
+      await processMockPage(generateMockProspects(200));
+      const status = getFinalStatus(collected.length, nb);
+      await updateExtractionCheckpoint(extractionId, collected.length, nbMaj, status);
+
+      return NextResponse.json({
+        success: true,
+        extractionId,
+        nbSortie: collected.length,
+        nbMaj,
+        status,
+        manquant: nb - collected.length,
+        mock: true,
+      });
+    }
+
+    // ── MODE RÉEL ─────────────────────────────────────────────
+    await processSellsyBatch(page => applyBatch1(page, dateSortie));
+    if (collected.length < nb) await processSellsyBatch(applyBatch2, 10);
+    if (collected.length < nb) await processSellsyBatch(applyBatch3, 10);
+    if (collected.length < nb) await processSellsyBatch(applyBatch4);
+
+    const status = getFinalStatus(collected.length, nb);
+    await updateExtractionCheckpoint(extractionId, collected.length, nbMaj, status);
 
     return NextResponse.json({
       success: true,
