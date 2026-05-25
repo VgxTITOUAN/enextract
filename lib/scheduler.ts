@@ -8,6 +8,7 @@
 import cron from 'node-cron';
 import pool from '@/lib/db';
 import { getProspectsEnriched, updateProspect } from '@/lib/sellsy';
+import { syncSellsyCache } from '@/lib/sellsy-sync';
 
 let initialized = false;
 
@@ -328,20 +329,11 @@ export function initScheduler() {
 
   // ── Job 1 : sync Sellsy — chaque nuit à 2h ──────────────────
   cron.schedule('0 2 * * *', async () => {
-    console.log('[CRON] Sync Sellsy démarrée —', new Date().toISOString());
+    console.log('[CRON] Démarrage sync Sellsy cache');
     try {
-      const secret  = process.env.CRON_SECRET;
-      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://enextract.eness.fr';
-      if (!secret) { console.error('[CRON] CRON_SECRET manquant'); return; }
-
-      const res  = await fetch(`${baseUrl}/api/sellsy-sync/cron`, {
-        method: 'POST', headers: { 'x-cron-secret': secret },
-      });
-      const data = await res.json();
-      if (!res.ok) { console.error('[CRON] Sync échouée :', data.error); return; }
-      console.log(`[CRON] Sync terminée — ${data.totalInserted} prospects — ${data.syncedAt}`);
-    } catch (err) {
-      console.error('[CRON] Erreur sync Sellsy :', err);
+      await syncSellsyCache();
+    } catch (error: any) {
+      console.error('[CRON] Erreur sync Sellsy:', error.message);
     }
   }, { timezone: 'Europe/Paris' });
 
