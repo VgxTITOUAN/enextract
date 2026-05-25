@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth';
 import pool from '@/lib/db';
-import { getProspectsEnriched, updateProspect } from '@/lib/sellsy';
+import { updateProspect } from '@/lib/sellsy';
 
 // ─────────────────────────────────────────────────────────────
 //  MOCK MODE — passer à false quand Sellsy est connecté
@@ -298,20 +298,36 @@ export async function POST(req: NextRequest) {
       filterFn: (prospects: any[]) => any[],
       maxBatchCount: number | null = null
     ) {
-      let cursor: string | null = null;
+      let page = 0;
       let batchCount = 0;
 
-      do {
-        const { prospects: page, nextCursor } = await getProspectsEnriched(100, cursor);
-        cursor = nextCursor;
+      while (true) {
+        const [rows]: any = await pool.execute(
+          `SELECT
+             sellsy_id AS id,
+             name,
+             email,
+             phone,
+             zip_code,
+             datemailling,
+             datecommandendd,
+             date_fin_contrat AS \`date-fin-contrat\`
+           FROM sellsy_cache
+           WHERE is_archived = 0
+           ORDER BY sellsy_id
+           LIMIT 100 OFFSET ?`,
+          [page * 100]
+        );
+
+        const pageProspects = rows ?? [];
 
         const remainingExtraction = nb - collected.length;
         const remainingBatch = maxBatchCount === null
           ? remainingExtraction
           : Math.min(maxBatchCount - batchCount, remainingExtraction);
 
-        if (page.length > 0 && remainingExtraction > 0 && remainingBatch > 0) {
-          const eligible = filterFn(page)
+        if (pageProspects.length > 0 && remainingExtraction > 0 && remainingBatch > 0) {
+          const eligible = filterFn(pageProspects)
             .filter(p => !collectedIds.has(String(p.id)))
             .slice(0, remainingBatch);
 
@@ -323,7 +339,9 @@ export async function POST(req: NextRequest) {
 
         if (collected.length >= nb) break;
         if (maxBatchCount !== null && batchCount >= maxBatchCount) break;
-      } while (cursor !== null);
+        if (pageProspects.length < 100) break;
+        page++;
+      }
     }
 
     // ── MOCK MODE ─────────────────────────────────────────────
