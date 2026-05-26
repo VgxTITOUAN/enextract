@@ -203,13 +203,22 @@ export async function getProspects(limit = 100, offset = 0): Promise<any[]> {
 export async function updateProspect(id: string, fields: Record<string, any>): Promise<boolean> {
   const token = await getSellsyToken();
 
-  const res = await fetch(`${SELLSY_API}/companies/${id}`, {
+  // Les champs custom Sellsy se mettent à jour via /custom-fields
+  // ID des champs : datemailling = 32239
+  const customFieldUpdates = [];
+  if (fields.datemailling !== undefined) {
+    customFieldUpdates.push({ id: 32239, value: fields.datemailling });
+  }
+
+  if (customFieldUpdates.length === 0) return true;
+
+  const res = await fetch(`${SELLSY_API}/companies/${id}/custom-fields`, {
     method:  'PUT',
     headers: {
       Authorization:  `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(fields),
+    body: JSON.stringify(customFieldUpdates),
   });
   await checkQuota(res);
 
@@ -223,9 +232,9 @@ export async function updateProspect(id: string, fields: Record<string, any>): P
   // Sync cache BDD si succès
   if (ok && fields.datemailling) {
     await pool.execute(
-      `UPDATE sellsy_cache SET datemailling = ?, synced_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      `UPDATE sellsy_cache SET datemailling = ?, synced_at = CURRENT_TIMESTAMP WHERE sellsy_id = ?`,
       [fields.datemailling, id]
-    ).catch(() => {}); // non bloquant
+    ).catch(() => {});
   }
 
   return ok;
