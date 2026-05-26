@@ -153,19 +153,23 @@ async function insertProspectCheckpoint(
 ) {
   await pool.execute(
     `INSERT INTO extraction_prospects
-     (extraction_id, sellsy_id, company_name, website, address, city, phone, phone_mobile,
+     (extraction_id, sellsy_id, company_name, website, address, city, zip_code,
+      contact_name, email, phone, phone_mobile,
       date_mailing_before, date_mailing_after, sellsy_updated)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       extractionId,
       String(prospect.id),
-      prospect.name               ?? '',
-      prospect.website            ?? null,
-      prospect.address            ?? null,
-      prospect.city               ?? null,
-      prospect.phone              ?? null,
-      prospect.phone_mobile       ?? null,
-      prospect[CF_DATE_MAILING]   ?? null,
+      prospect.name             ?? '',
+      prospect.website          ?? null,
+      prospect.address          ?? null,
+      prospect.city             ?? null,
+      prospect.zip_code         ?? null,
+      prospect.contact_name     ?? null,
+      prospect.email            ?? null,
+      prospect.phone            ?? null,
+      prospect.phone_mobile     ?? null,
+      prospect[CF_DATE_MAILING] ?? null,
       sellsyOk ? today            : null,
       sellsyOk ? 1                : 0,
     ]

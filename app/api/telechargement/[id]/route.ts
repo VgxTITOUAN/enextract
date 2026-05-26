@@ -60,12 +60,9 @@ export async function GET(
         return raw;
       };
 
-      // "2024-03-18" → "18/03/2024"
-      const formatDate = (raw: string | null): string => {
-        if (!raw) return '';
-        const d = new Date(raw);
-        if (isNaN(d.getTime())) return '';
-        return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      const formatDate = (d: any) => {
+        if (!d) return '';
+        return new Date(d).toISOString().split('T')[0];
       };
 
       const headers = [
