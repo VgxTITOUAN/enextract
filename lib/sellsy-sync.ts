@@ -1,6 +1,19 @@
 import pool from '@/lib/db';
 import { getProspectsEnriched } from '@/lib/sellsy';
 
+function formatPhone(phone: string | null): string | null {
+  if (!phone) return null;
+  // Supprimer tout sauf les chiffres
+  const digits = phone.replace(/\D/g, '');
+  // Si commence par 33, remplacer par 0
+  const local = digits.startsWith('33') ? '0' + digits.slice(2) : digits;
+  // Formater en 0X XX XX XX XX
+  if (local.length === 10) {
+    return local.replace(/(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/, '$1 $2 $3 $4 $5');
+  }
+  return phone; // retourner tel quel si format inconnu
+}
+
 export async function syncSellsyCache(): Promise<void> {
   console.log('[SYNC] Démarrage synchronisation cache Sellsy');
 
@@ -51,8 +64,8 @@ export async function syncSellsyCache(): Promise<void> {
             String(p.id),
             p.name                                          ?? null,
             p.email                                         ?? null,
-            p.phone_number                                  ?? null,
-            p.mobile_number                                 ?? null,
+            formatPhone(p.phone_number)                     ?? null,
+            formatPhone(p.mobile_number)                    ?? null,
             p.website                                       ?? null,
             p._embed?.invoicing_address?.address_line_1     ?? null,
             p._embed?.invoicing_address?.city               ?? null,
