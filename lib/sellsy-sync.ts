@@ -16,6 +16,11 @@ export async function syncSellsyCache(): Promise<void> {
       }
 
       const { prospects: page, nextCursor } = await getProspectsEnriched(100, cursor);
+      if (nextCursor === cursor) {
+        console.log('[SYNC] Curseur identique — fin de la synchronisation');
+        break;
+      }
+
       cursor = nextCursor;
       pageNum++;
 
