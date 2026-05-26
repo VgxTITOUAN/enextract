@@ -7,7 +7,7 @@
 
 import cron from 'node-cron';
 import pool from '@/lib/db';
-import { getProspectsEnriched, updateProspect } from '@/lib/sellsy';
+import { updateProspect } from '@/lib/sellsy';
 import { syncSellsyCache } from '@/lib/sellsy-sync';
 
 let initialized = false;
@@ -126,22 +126,25 @@ async function saveExtraction(
 
     await pool.execute(
       `INSERT INTO extraction_prospects
-       (extraction_id, sellsy_id, company_name, website, address, zip_code, city,
-        phone, phone_mobile, date_mailing_before, date_mailing_after, sellsy_updated)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (extraction_id, sellsy_id, company_name, website, address, city, zip_code,
+        contact_name, email, phone, phone_mobile,
+        date_mailing_before, date_mailing_after, sellsy_updated)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         extractionId,
         String(prospect.id),
-        prospect.name          ?? '',
-        prospect.website       ?? null,
-        prospect.address       ?? null,
-        prospect.zip_code      ?? null,
-        prospect.city          ?? null,
-        prospect.phone         ?? null,
-        prospect.phone_mobile  ?? null,
+        prospect.name             ?? '',
+        prospect.website          ?? null,
+        prospect.address          ?? null,
+        prospect.city             ?? null,
+        prospect.zip_code         ?? null,
+        prospect.contact_name     ?? null,
+        prospect.email            ?? null,
+        prospect.phone            ?? null,
+        prospect.phone_mobile     ?? null,
         prospect[CF_DATE_MAILING] ?? null,
-        sellsyOk ? today       : null,
-        sellsyOk ? 1           : 0,
+        sellsyOk ? today          : null,
+        sellsyOk ? 1              : 0,
       ]
     );
   }
@@ -171,64 +174,65 @@ async function runScheduledExtraction(schedule: any) {
 
   try {
     const collected: any[] = [];
-    let cursor: string | null = null;
+    const collectedIds = new Set<string>();
 
-    // Batch 1
-    while (collected.length < nb) {
-      const { prospects: enriched, nextCursor } = await getProspectsEnriched(100, cursor);
-      cursor = nextCursor;
-      if (!enriched.length) break;
-      const filtered = applyBatch1(enriched, dateSortie)
-        .filter(p => !collected.find((c: any) => c.id === p.id))
-        .slice(0, nb - collected.length);
-      collected.push(...filtered);
-      if (cursor === null) break;
-    }
+    async function processSellsyBatch(
+      filterFn: (prospects: any[]) => any[],
+      maxBatchCount: number | null = null
+    ) {
+      let page = 0;
+      let batchCount = 0;
 
-    // Batch 2
-    if (collected.length < nb) {
-      cursor = null;
-      while (collected.length < nb) {
-        const { prospects: enriched, nextCursor } = await getProspectsEnriched(100, cursor);
-        cursor = nextCursor;
-        if (!enriched.length) break;
-        const filtered = applyBatch2(enriched)
-          .filter(p => !collected.find(c => c.id === p.id))
-          .slice(0, Math.min(10, nb - collected.length));
-        collected.push(...filtered);
-        if (filtered.length >= 10 || cursor === null) break;
+      while (true) {
+        const [rows]: any = await pool.execute(
+          `SELECT
+             sellsy_id AS id,
+             name,
+             website,
+             address,
+             city,
+             zip_code,
+             email,
+             phone,
+             phone_mobile,
+             datemailling,
+             datecommandendd,
+             date_fin_contrat AS \`date-fin-contrat\`
+           FROM sellsy_cache
+           WHERE is_archived = 0
+           ORDER BY sellsy_id
+           LIMIT 100 OFFSET ?`,
+          [page * 100]
+        );
+
+        const pageProspects = rows ?? [];
+
+        const remainingExtraction = nb - collected.length;
+        const remainingBatch = maxBatchCount === null
+          ? remainingExtraction
+          : Math.min(maxBatchCount - batchCount, remainingExtraction);
+
+        if (pageProspects.length > 0 && remainingExtraction > 0 && remainingBatch > 0) {
+          const eligible = filterFn(pageProspects)
+            .filter(p => !collectedIds.has(String(p.id)))
+            .slice(0, remainingBatch);
+
+          batchCount += eligible.length;
+          collected.push(...eligible);
+          eligible.forEach(p => collectedIds.add(String(p.id)));
+        }
+
+        if (collected.length >= nb) break;
+        if (maxBatchCount !== null && batchCount >= maxBatchCount) break;
+        if (pageProspects.length < 100) break;
+        page++;
       }
     }
 
-    // Batch 3
-    if (collected.length < nb) {
-      cursor = null;
-      while (collected.length < nb) {
-        const { prospects: enriched, nextCursor } = await getProspectsEnriched(100, cursor);
-        cursor = nextCursor;
-        if (!enriched.length) break;
-        const filtered = applyBatch3(enriched)
-          .filter(p => !collected.find(c => c.id === p.id))
-          .slice(0, Math.min(10, nb - collected.length));
-        collected.push(...filtered);
-        if (filtered.length >= 10 || cursor === null) break;
-      }
-    }
-
-    // Batch 4
-    if (collected.length < nb) {
-      cursor = null;
-      while (collected.length < nb) {
-        const { prospects: enriched, nextCursor } = await getProspectsEnriched(100, cursor);
-        cursor = nextCursor;
-        if (!enriched.length) break;
-        const filtered = applyBatch4(enriched)
-          .filter(p => !collected.find(c => c.id === p.id))
-          .slice(0, nb - collected.length);
-        collected.push(...filtered);
-        if (cursor === null) break;
-      }
-    }
+    await processSellsyBatch(page => applyBatch1(page, dateSortie));
+    if (collected.length < nb) await processSellsyBatch(applyBatch2, 10);
+    if (collected.length < nb) await processSellsyBatch(applyBatch3, 10);
+    if (collected.length < nb) await processSellsyBatch(applyBatch4);
 
     // MàJ Sellsy
     const sellsyUpdates: boolean[] = [];
