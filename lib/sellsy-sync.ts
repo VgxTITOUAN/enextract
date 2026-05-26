@@ -29,13 +29,18 @@ export async function syncSellsyCache(): Promise<void> {
       // INSERT ou UPDATE en batch pour toute la page
       for (const p of page) {
         await pool.execute(
-          `INSERT INTO sellsy_cache
-            (sellsy_id, name, email, phone, zip_code, datemailling, datecommandendd, date_fin_contrat, is_archived, synced_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())
+          `INSERT INTO sellsy_cache 
+            (sellsy_id, name, email, phone, phone_mobile, website, address, city, zip_code, 
+             datemailling, datecommandendd, date_fin_contrat, is_archived, synced_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())
            ON DUPLICATE KEY UPDATE
              name              = VALUES(name),
              email             = VALUES(email),
              phone             = VALUES(phone),
+             phone_mobile      = VALUES(phone_mobile),
+             website           = VALUES(website),
+             address           = VALUES(address),
+             city              = VALUES(city),
              zip_code          = VALUES(zip_code),
              datemailling      = VALUES(datemailling),
              datecommandendd   = VALUES(datecommandendd),
@@ -44,13 +49,17 @@ export async function syncSellsyCache(): Promise<void> {
              synced_at         = NOW()`,
           [
             String(p.id),
-            p.name                  ?? null,
-            p.email                 ?? null,
-            p.phone_number          ?? null,
-            p.zip_code              ?? null,
-            p.datemailling          ?? null,
-            p.datecommandendd       ?? null,
-            p['date-fin-contrat']   ?? null,
+            p.name                                          ?? null,
+            p.email                                         ?? null,
+            p.phone_number                                  ?? null,
+            p.mobile_number                                 ?? null,
+            p.website                                       ?? null,
+            p._embed?.invoicing_address?.address_line_1     ?? null,
+            p._embed?.invoicing_address?.city               ?? null,
+            p.zip_code                                      ?? null,
+            p.datemailling                                  ?? null,
+            p.datecommandendd                               ?? null,
+            p['date-fin-contrat']                           ?? null,
           ]
         );
       }
