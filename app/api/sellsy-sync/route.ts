@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import { verifyToken } from '@/lib/auth';
 import pool from '@/lib/db';
 import { syncSellsyCache } from '@/lib/sellsy-sync';
 
@@ -21,6 +23,17 @@ export async function GET() {
 
 export async function POST() {
   try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get('enextract_token')?.value;
+    if (!token) return NextResponse.json({ error: 'Non autorisé.' }, { status: 401 });
+
+    const user = verifyToken(token);
+    if (!user) return NextResponse.json({ error: 'Non autorisé.' }, { status: 401 });
+
+    if (user.role !== 'admin') {
+      return NextResponse.json({ error: 'Accès refusé — admin uniquement.' }, { status: 403 });
+    }
+
     await syncSellsyCache();
     return NextResponse.json({ success: true });
   } catch (error: any) {
