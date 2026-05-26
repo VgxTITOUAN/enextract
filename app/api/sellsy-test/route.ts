@@ -15,13 +15,15 @@ export async function GET() {
     );
     const before = await res1.json();
 
-    // 2. Mettre à jour datemailling
+    // 2. Mettre à jour datemailling via l'endpoint custom-fields
     const res2 = await fetch(
-      `https://api.sellsy.com/v2/companies/${TEST_PROSPECT_ID}`,
+      `https://api.sellsy.com/v2/companies/${TEST_PROSPECT_ID}/custom-fields`,
       {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ datemailling: today }),
+        body: JSON.stringify([
+          { id: 32239, value: today }
+        ]),
       }
     );
 
