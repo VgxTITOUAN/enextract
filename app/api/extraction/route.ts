@@ -308,11 +308,15 @@ export async function POST(req: NextRequest) {
       while (true) {
         const [rows]: any = await pool.execute(
           `SELECT
-             sellsy_id AS id,
+             sellsy_id        AS id,
              name,
+             website,
+             address,
+             city,
+             zip_code,
              email,
              phone,
-             zip_code,
+             phone_mobile,
              datemailling,
              datecommandendd,
              date_fin_contrat AS \`date-fin-contrat\`
