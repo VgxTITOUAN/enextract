@@ -88,7 +88,6 @@ function applyBatch1(prospects: any[], dateSortie: Date): any[] {
     return true;
   });
 
-  console.log(`applyBatch1 — entrée: ${prospects.length}, sortie: ${result.length}`);
   return result;
 }
 
@@ -331,9 +330,6 @@ export async function POST(req: NextRequest) {
         );
 
         const pageProspects = rows ?? [];
-        if (page === 0) {
-          console.log('Premier prospect cache:', JSON.stringify(pageProspects[0]));
-        }
 
         const remainingExtraction = nb - collected.length;
         const remainingBatch = maxBatchCount === null
