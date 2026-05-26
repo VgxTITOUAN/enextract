@@ -39,56 +39,36 @@ export async function GET(
     const { searchParams } = new URL(req.url);
     if (searchParams.get('format') === 'csv') {
 
-      // "29200 Brest"
-      const formatVille = (zip: string | null, city: string | null): string => {
-        const z = zip?.trim() || null;
-        const c = city?.trim() || null;
-        if (!z && !c) return '';
-        return [z, c].filter(Boolean).join(' ');
-      };
-
-      // "+33298450100" → "02 98 45 01 00"
-      const formatPhone = (raw: string | null): string => {
-        if (!raw) return '';
-        let digits = raw.replace(/\D/g, '');
-        if (digits.startsWith('33') && digits.length === 11) {
-          digits = '0' + digits.slice(2);
-        }
-        if (digits.length === 10) {
-          return digits.match(/.{2}/g)!.join(' ');
-        }
-        return raw;
-      };
-
       const formatDate = (d: any) => {
         if (!d) return '';
-        return new Date(d).toISOString().split('T')[0];
+        const date = new Date(d);
+        if (isNaN(date.getTime())) return '';
+        return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
       };
 
-      const headers = [
-        'Société',
-        'Site web',
-        'Adresse',
-        'Code postal Ville',
-        'Téléphone fixe',
-        'Téléphone mobile',
-        'Date mailing',
-      ];
-
       const lines = [
-        headers.join(';'),
+        'id sellsy;Type;Nom;Type de prospect;ADRESSE PARTIE 1;CODE POSTAL;VILLE;Site Internet;Secteur d\'activité;Email;Téléphone;Mobile;Date de création;Date fin contrat;Date commande NDD;Date mailling',
         ...prospects.map((p: any) => [
-          p.company_name  ?? '',
-          p.website       ?? '',
-          p.address       ?? '',
-          formatVille(p.zip_code ?? null, p.city ?? null),
-          formatPhone(p.phone        ?? null),
-          formatPhone(p.phone_mobile ?? null),
-          formatDate(p.date_mailing_before ?? null),
-        ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(';')),
+          p.sellsy_id           ?? '',
+          'prospect',
+          p.company_name        ?? '',
+          'Mailling',
+          p.address             ?? '',
+          p.zip_code            ?? '',
+          p.city                ?? '',
+          p.website             ?? '',
+          '',
+          p.email               ?? '',
+          p.phone               ?? '',
+          p.phone_mobile        ?? '',
+          '',
+          formatDate(p.date_fin_contrat),
+          formatDate(p.date_commande_ndd),
+          formatDate(p.date_mailing_after),
+        ].join(';'))
       ];
 
-      const csv = '\uFEFF' + 'sep=;\n' + lines.join('\n');
+      const csv = '\uFEFF' + lines.join('\n');
 
       return new NextResponse(csv, {
         headers: {
