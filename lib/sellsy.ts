@@ -107,7 +107,9 @@ export async function getProspectsEnriched(
   limit = 100,
   cursor: string | null = null
 ): Promise<{ prospects: ProspectEnriched[]; nextCursor: string | null }> {
-  const url = `${SELLSY_API}/companies/search?limit=${limit}&embed[]=cf.32239&embed[]=cf.264244&embed[]=cf.264245&embed[]=invoicing_address`;
+  const url = cursor
+    ? `${SELLSY_API}/companies/search?limit=${limit}&offset=${cursor}&embed[]=cf.32239&embed[]=cf.264244&embed[]=cf.264245&embed[]=invoicing_address`
+    : `${SELLSY_API}/companies/search?limit=${limit}&embed[]=cf.32239&embed[]=cf.264244&embed[]=cf.264245&embed[]=invoicing_address`;
   const token = await getSellsyToken();
 
   const res = await fetch(
@@ -120,7 +122,6 @@ export async function getProspectsEnriched(
       },
       body: JSON.stringify({
         filters: { type: 'prospect', is_archived: false },
-        ...(cursor ? { after: cursor } : {}),
       }),
     }
   );
@@ -137,10 +138,9 @@ export async function getProspectsEnriched(
   const companies = data.data ?? [];
 
   const rawNextCursor = data.pagination?.offset;
-  const nextCursor = rawNextCursor !== null && rawNextCursor !== undefined
+  const safeNextCursor = rawNextCursor !== null && rawNextCursor !== undefined
     ? String(rawNextCursor)
     : null;
-  const safeNextCursor = nextCursor;
 
   const enriched = companies.map((prospect: any) => {
     const customFields = prospect._embed?.custom_fields ?? [];
