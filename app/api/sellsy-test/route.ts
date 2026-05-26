@@ -5,67 +5,41 @@ export async function GET() {
   try {
     const token = await getSellsyToken();
 
-    // Total prospects non archivés
+    // 1. Trouver le prospect "test rémi 2"
     const res1 = await fetch(
-      'https://api.sellsy.com/v2/companies/search?limit=1',
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filters: { type: 'prospect', is_archived: false } }),
-      }
-    );
-    const data1 = await res1.json();
-    const totalProspects = data1?.pagination?.total;
-
-    // Total prospects archivés
-    const res2 = await fetch(
-      'https://api.sellsy.com/v2/companies/search?limit=1',
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filters: { type: 'prospect', is_archived: true } }),
-      }
-    );
-    const data2 = await res2.json();
-    const totalArchives = data2?.pagination?.total;
-
-    // Récupérer 5 prospects et voir leur datemailling
-    const res3 = await fetch(
       'https://api.sellsy.com/v2/companies/search?limit=5',
       {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filters: { type: 'prospect', is_archived: false } }),
+        body: JSON.stringify({
+          filters: { type: 'prospect', is_archived: false },
+          search: 'test rémi 2',
+        }),
       }
     );
-    const data3 = await res3.json();
-    const prospects = data3?.data ?? [];
+    const data1 = await res1.json();
+    const prospect = data1?.data?.[0];
+    if (!prospect) return NextResponse.json({ error: 'Prospect non trouvé' });
 
-    // Récupérer les custom fields des 5 premiers
-    const sample = await Promise.all(
-      prospects.map(async (p: any) => {
-        const res = await fetch(
-          `https://api.sellsy.com/v2/companies/${p.id}/custom-fields`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        const cf = res.ok ? await res.json() : {};
-        const fields: any = {};
-        for (const f of cf.data ?? []) fields[f.code] = f.value;
-        return {
-          id:               p.id,
-          name:             p.name,
-          datemailling:     fields['datemailling']     ?? null,
-          datecommandendd:  fields['datecommandendd']  ?? null,
-          date_fin_contrat: fields['date-fin-contrat'] ?? null,
-        };
-      })
+    // 2. Lire le datemailling actuel
+    const today = new Date().toISOString().split('T')[0];
+
+    // 3. Mettre à jour datemailling
+    const res2 = await fetch(
+      `https://api.sellsy.com/v2/companies/${prospect.id}`,
+      {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ datemailling: today }),
+      }
     );
 
     return NextResponse.json({
-      total_prospects_non_archives: totalProspects,
-      total_prospects_archives:     totalArchives,
-      limite_2ans:                  new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      sample_5_prospects:           sample,
+      prospect_id:   prospect.id,
+      prospect_name: prospect.name,
+      update_status: res2.status,
+      update_ok:     res2.ok,
+      new_date:      today,
     });
 
   } catch (error: any) {
