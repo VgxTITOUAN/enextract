@@ -73,7 +73,7 @@ function applyBatch1(prospects: any[], dateSortie: Date): any[] {
   const limite        = subMonths(dateSortie, 30);
   const limiteMailing = subYears(dateSortie, 2);
 
-  return prospects.filter(p => {
+  const result = prospects.filter(p => {
     const dept = p[CF_DEPARTEMENT] ?? '';
     if (!dept.startsWith('29') && !dept.startsWith('56')) return false;
 
@@ -87,6 +87,9 @@ function applyBatch1(prospects: any[], dateSortie: Date): any[] {
 
     return true;
   });
+
+  console.log(`applyBatch1 — entrée: ${prospects.length}, sortie: ${result.length}`);
+  return result;
 }
 
 function applyBatch2(prospects: any[]): any[] {
