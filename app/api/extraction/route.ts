@@ -8,7 +8,7 @@ import { updateProspect } from '@/lib/sellsy';
 //  MOCK MODE — passer à false quand Sellsy est connecté
 // ─────────────────────────────────────────────────────────────
 const MOCK_MODE = false;
-const DRY_RUN   = true;  // ← true = pas de modification dans Sellsy
+const DRY_RUN   = false;  // ← true = pas de modification dans Sellsy
 
 // ─────────────────────────────────────────────────────────────
 //  CONSTANTES — codes champs custom Sellsy confirmés
