@@ -95,7 +95,8 @@ function applyBatch1(prospects: any[], dateSortie: Date): any[] {
     if (!dept.startsWith('29') && !dept.startsWith('56')) return false;
 
     const dateCommande = p[CF_DATE_COMMANDE_NOM];
-    if (!isUnknown(dateCommande) && new Date(dateCommande) > limite) return false;
+    if (isUnknown(dateCommande)) return false;
+    if (new Date(dateCommande) > limite) return false;
 
     if (!isUnknown(p[CF_DATE_FIN_CONTRAT])) return false;
 
