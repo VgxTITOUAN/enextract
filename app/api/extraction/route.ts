@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import type { RowDataPacket } from 'mysql2';
 import { verifyToken } from '@/lib/auth';
 import pool from '@/lib/db';
 import { updateProspect } from '@/lib/sellsy';
@@ -17,6 +18,22 @@ const CF_DATE_MAILING      = 'datemailling';
 const CF_DATE_COMMANDE_NOM = 'datecommandendd';
 const CF_DATE_FIN_CONTRAT  = 'date-fin-contrat';
 const CF_DEPARTEMENT       = 'zip_code';
+
+type SellsyCacheProspect = RowDataPacket & {
+  id: string | number;
+  company_name?: string | null;
+  name?: string | null;
+  website?: string | null;
+  address?: string | null;
+  city?: string | null;
+  zip_code?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  phone_mobile?: string | null;
+  datemailling?: string | null;
+  datecommandendd?: string | null;
+  'date-fin-contrat'?: string | null;
+};
 
 // ─────────────────────────────────────────────────────────────
 //  DONNÉES MOCK
@@ -272,6 +289,46 @@ export async function POST(req: NextRequest) {
       await updateExtractionCheckpoint(extractionId, collected.length, nbMaj);
     }
 
+    function logBatchProspects(batchNumber: number, label: string, prospects: SellsyCacheProspect[]) {
+      console.log(`\n--- Batch ${batchNumber} (${label}) --- ${prospects.length} prospect(s) sélectionné(s)`);
+      prospects.forEach((p, i) => {
+        console.log(`  [Batch ${batchNumber} | #${i + 1}] ${p.company_name ?? p.name}`);
+        console.log(`    id              : ${p.id}`);
+        console.log(`    zip_code        : ${p.zip_code ?? 'N/A'}`);
+        console.log(`    city            : ${p.city ?? 'N/A'}`);
+        console.log(`    address         : ${p.address ?? 'N/A'}`);
+        console.log(`    email           : ${p.email ?? 'N/A'}`);
+        console.log(`    phone           : ${p.phone ?? 'N/A'}`);
+        console.log(`    phone_mobile    : ${p.phone_mobile ?? 'N/A'}`);
+        console.log(`    website         : ${p.website ?? 'N/A'}`);
+        console.log(`    datemailling    : ${p.datemailling ?? 'inconnue'}`);
+        console.log(`    datecommandendd : ${p.datecommandendd ?? 'inconnue'}`);
+        console.log(`    date-fin-contrat: ${p['date-fin-contrat'] ?? 'inconnue'}`);
+        console.log(`    ----------------------------------------`);
+      });
+      console.log(`  Total collecté après batch ${batchNumber} : ${collected.length}/${nb}`);
+    }
+
+    async function processRealBatch(
+      batchNumber: number,
+      label: string,
+      raw: SellsyCacheProspect[],
+      filterFn: (prospects: SellsyCacheProspect[]) => SellsyCacheProspect[],
+      maxBatchCount: number | null = null
+    ) {
+      const remainingExtraction = nb - collected.length;
+      const remainingBatch = maxBatchCount === null
+        ? remainingExtraction
+        : Math.min(maxBatchCount, remainingExtraction);
+
+      const batchEligible = filterFn(raw)
+        .filter(p => !collectedIds.has(String(p.id)));
+      const batchResult = batchEligible.slice(0, remainingBatch);
+
+      await checkpointEligiblePage(batchResult);
+      logBatchProspects(batchNumber, label, batchResult);
+    }
+
     async function processMockPage(page: any[]) {
       const batch1 = applyBatch1(page, dateSortie)
         .filter(p => !collectedIds.has(String(p.id)))
@@ -300,60 +357,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    async function processSellsyBatch(
-      filterFn: (prospects: any[]) => any[],
-      maxBatchCount: number | null = null
-    ) {
-      let page = 0;
-      let batchCount = 0;
-
-      while (true) {
-        const [rows]: any = await pool.execute(
-          `SELECT
-             sellsy_id        AS id,
-             name,
-             website,
-             address,
-             city,
-             zip_code,
-             email,
-             phone,
-             phone_mobile,
-             datemailling,
-             datecommandendd,
-             date_fin_contrat AS \`date-fin-contrat\`
-           FROM sellsy_cache
-           WHERE is_archived = 0
-           ORDER BY sellsy_id
-           LIMIT 100 OFFSET ?`,
-          [page * 100]
-        );
-
-        const pageProspects = rows ?? [];
-
-        const remainingExtraction = nb - collected.length;
-        const remainingBatch = maxBatchCount === null
-          ? remainingExtraction
-          : Math.min(maxBatchCount - batchCount, remainingExtraction);
-
-        if (pageProspects.length > 0 && remainingExtraction > 0 && remainingBatch > 0) {
-          const eligible = filterFn(pageProspects)
-            .filter(p => !collectedIds.has(String(p.id)))
-            .slice(0, remainingBatch);
-
-          batchCount += eligible.length;
-          await checkpointEligiblePage(eligible);
-        } else {
-          await checkpointEligiblePage([]);
-        }
-
-        if (collected.length >= nb) break;
-        if (maxBatchCount !== null && batchCount >= maxBatchCount) break;
-        if (pageProspects.length < 100) break;
-        page++;
-      }
-    }
-
     // ── MOCK MODE ─────────────────────────────────────────────
     if (MOCK_MODE) {
       await processMockPage(generateMockProspects(200));
@@ -372,10 +375,38 @@ export async function POST(req: NextRequest) {
     }
 
     // ── MODE RÉEL ─────────────────────────────────────────────
-    await processSellsyBatch(page => applyBatch1(page, dateSortie));
-    if (collected.length < nb) await processSellsyBatch(applyBatch2, 10);
-    if (collected.length < nb) await processSellsyBatch(applyBatch3, 10);
-    if (collected.length < nb) await processSellsyBatch(applyBatch4);
+    console.log(`\n========== EXTRACTION ==========`);
+    console.log(`Demande : ${nb} prospects | Date sortie : ${dateSortie.toISOString()}`);
+
+    const [rawRows] = await pool.execute<SellsyCacheProspect[]>(
+      `SELECT
+         sellsy_id        AS id,
+         name,
+         website,
+         address,
+         city,
+         zip_code,
+         email,
+         phone,
+         phone_mobile,
+         datemailling,
+         datecommandendd,
+         date_fin_contrat AS \`date-fin-contrat\`
+       FROM sellsy_cache
+       WHERE is_archived = 0
+       ORDER BY sellsy_id`
+    );
+    const raw = rawRows ?? [];
+
+    await processRealBatch(1, 'priorité, sans limite', raw, prospects => applyBatch1(prospects, dateSortie));
+    if (collected.length < nb) await processRealBatch(2, 'complément, limite 10', raw, applyBatch2, 10);
+    if (collected.length < nb) await processRealBatch(3, 'complément, limite 10', raw, applyBatch3, 10);
+    if (collected.length < nb) await processRealBatch(4, 'complément, sans limite', raw, applyBatch4);
+
+    console.log(`\n========== RÉSULTAT FINAL ==========`);
+    console.log(`  Prospects sélectionnés : ${collected.length}/${nb}`);
+    if (collected.length < nb) console.log(`  ⚠ Extraction partielle — stock insuffisant`);
+    console.log(`=====================================\n`);
 
     const status = getFinalStatus(collected.length, nb);
     await updateExtractionCheckpoint(extractionId, collected.length, nbMaj, status);
