@@ -290,23 +290,25 @@ export async function POST(req: NextRequest) {
     }
 
     function logBatchProspects(batchNumber: number, label: string, prospects: SellsyCacheProspect[]) {
-      console.log(`\n--- Batch ${batchNumber} (${label}) --- ${prospects.length} prospect(s) sélectionné(s)`);
-      prospects.forEach((p, i) => {
-        console.log(`  [Batch ${batchNumber} | #${i + 1}] ${p.company_name ?? p.name}`);
-        console.log(`    id              : ${p.id}`);
-        console.log(`    zip_code        : ${p.zip_code ?? 'N/A'}`);
-        console.log(`    city            : ${p.city ?? 'N/A'}`);
-        console.log(`    address         : ${p.address ?? 'N/A'}`);
-        console.log(`    email           : ${p.email ?? 'N/A'}`);
-        console.log(`    phone           : ${p.phone ?? 'N/A'}`);
-        console.log(`    phone_mobile    : ${p.phone_mobile ?? 'N/A'}`);
-        console.log(`    website         : ${p.website ?? 'N/A'}`);
-        console.log(`    datemailling    : ${p.datemailling ?? 'inconnue'}`);
-        console.log(`    datecommandendd : ${p.datecommandendd ?? 'inconnue'}`);
-        console.log(`    date-fin-contrat: ${p['date-fin-contrat'] ?? 'inconnue'}`);
-        console.log(`    ----------------------------------------`);
-      });
-      console.log(`  Total collecté après batch ${batchNumber} : ${collected.length}/${nb}`);
+      console.log(`\n--- Batch ${batchNumber} (${label}) --- ${prospects.length} prospect(s)`);
+      if (prospects.length > 0) {
+        const header = 'id;nom;zip_code;city;email;phone;phone_mobile;website;datemailling;datecommandendd;date-fin-contrat';
+        const rows = prospects.map(p => [
+          p.id,
+          p.company_name ?? p.name ?? '',
+          p.zip_code ?? '',
+          p.city ?? '',
+          p.email ?? '',
+          p.phone ?? '',
+          p.phone_mobile ?? '',
+          p.website ?? '',
+          p.datemailling ?? '',
+          p.datecommandendd ?? '',
+          p['date-fin-contrat'] ?? '',
+        ].join(';')).join('\n');
+        console.log(`${header}\n${rows}`);
+      }
+      console.log(`Total collecté après batch ${batchNumber} : ${collected.length}/${nb}`);
     }
 
     async function processRealBatch(
