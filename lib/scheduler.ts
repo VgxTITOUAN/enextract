@@ -42,7 +42,7 @@ const CF_DATE_MAILING      = 'datemailling';
 const CF_DATE_COMMANDE_NOM = 'datecommandendd';
 const CF_DATE_FIN_CONTRAT  = 'date-fin-contrat';
 const CF_DEPARTEMENT       = 'zip_code';
-const DRY_RUN              = false; // ← passer à false quand validé avec Rémi
+const DRY_RUN              = true;  // ← passer à false quand validé avec Rémi
 
 function applyBatch1(prospects: any[], dateSortie: Date): any[] {
   const limite        = subMonths(dateSortie, 30);
