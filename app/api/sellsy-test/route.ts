@@ -4,9 +4,9 @@ import { getSellsyToken } from '@/lib/sellsy';
 export async function GET() {
   const token = await getSellsyToken();
 
-  // Lister tous les custom fields disponibles
+  // Récupérer les options du champ select secteuractivite (id 47599)
   const res = await fetch(
-    'https://api.sellsy.com/v2/custom-fields?limit=100',
+    'https://api.sellsy.com/v2/custom-fields/47599',
     {
       method: 'GET',
       headers: { Authorization: `Bearer ${token}` },
@@ -17,13 +17,6 @@ export async function GET() {
 
   return NextResponse.json({
     status: res.status,
-    total: data?.pagination?.total,
-    fields: (data?.data ?? []).map((f: any) => ({
-      id: f.id,
-      name: f.name,
-      code: f.code,
-      type: f.type,
-      related_objects: f.related_objects,
-    }))
+    field: data,
   });
 }
