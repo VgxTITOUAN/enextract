@@ -44,8 +44,8 @@ export async function syncSellsyCache(): Promise<void> {
         await pool.execute(
           `INSERT INTO sellsy_cache 
             (sellsy_id, name, email, phone, phone_mobile, website, address, city, zip_code, 
-             datemailling, datecommandendd, date_fin_contrat, is_archived, synced_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())
+             datemailling, datecommandendd, date_fin_contrat, secteur_activite, is_archived, synced_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())
            ON DUPLICATE KEY UPDATE
              name              = VALUES(name),
              email             = VALUES(email),
@@ -58,6 +58,7 @@ export async function syncSellsyCache(): Promise<void> {
              datemailling      = VALUES(datemailling),
              datecommandendd   = VALUES(datecommandendd),
              date_fin_contrat  = VALUES(date_fin_contrat),
+             secteur_activite  = VALUES(secteur_activite),
              is_archived       = 0,
              synced_at         = NOW()`,
           [
@@ -73,6 +74,7 @@ export async function syncSellsyCache(): Promise<void> {
             p.datemailling                                  ?? null,
             p.datecommandendd                               ?? null,
             p['date-fin-contrat']                           ?? null,
+            p._embed?.custom_fields?.find((f: any) => f.id === 47599)?.value ?? null,
           ]
         );
       }
