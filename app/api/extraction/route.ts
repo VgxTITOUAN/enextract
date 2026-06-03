@@ -18,6 +18,19 @@ const CF_DATE_MAILING      = 'datemailling';
 const CF_DATE_COMMANDE_NOM = 'datecommandendd';
 const CF_DATE_FIN_CONTRAT  = 'date-fin-contrat';
 const CF_DEPARTEMENT       = 'zip_code';
+const EXCLUDED_SECTORS_BATCH4 = [
+  "Bar / Café",
+  "Cave à vins",
+  "Coaching",
+  "Coursier",
+  "École",
+  "Élevage animaux",
+  "Mairie",
+  "Podologue",
+  "Relooking",
+  "Tatoueur",
+  "Thérapeute",
+];
 
 type SellsyCacheProspect = RowDataPacket & {
   id: string | number;
@@ -32,6 +45,7 @@ type SellsyCacheProspect = RowDataPacket & {
   phone_mobile?: string | null;
   datemailling?: string | null;
   datecommandendd?: string | null;
+  secteur_activite?: string | null;
   'date-fin-contrat'?: string | null;
 };
 
@@ -83,6 +97,14 @@ function isUnknown(val: any): boolean {
   return val === null || val === undefined || val === '' || val === '0000-00-00';
 }
 
+function shuffle<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
 // ─────────────────────────────────────────────────────────────
 //  FILTRES MÉTIER
 // ─────────────────────────────────────────────────────────────
@@ -132,10 +154,12 @@ function applyBatch3(prospects: any[]): any[] {
   });
 }
 
-function applyBatch4(prospects: any[]): any[] {
+function applyBatch4(prospects: any[], nbTotal: number, nbRestant: number): any[] {
   const limite2000    = new Date('2000-01-01');
   const limiteMailing = subYears(new Date(), 2);
-  return prospects.filter(p => {
+  const maxPerSector = Math.ceil(nbTotal * 0.07);
+
+  const eligible = prospects.filter(p => {
     if (!(p[CF_DEPARTEMENT] ?? '').startsWith('29')) return false;
     if (!isUnknown(p[CF_DATE_COMMANDE_NOM])) return false;
     if (!isUnknown(p[CF_DATE_FIN_CONTRAT]))  return false;
@@ -143,8 +167,50 @@ function applyBatch4(prospects: any[]): any[] {
     if (isUnknown(dm)) return false;
     const d = new Date(dm);
     if (d < limite2000 || d > limiteMailing) return false;
+    if (EXCLUDED_SECTORS_BATCH4.includes(p.secteur_activite)) return false;
     return true;
   });
+
+  const bySector: Record<string, any[]> = {};
+  for (const p of eligible) {
+    const key = p.secteur_activite ?? "NC";
+    bySector[key] = bySector[key] ?? [];
+    bySector[key].push(p);
+  }
+
+  for (const key in bySector) {
+    bySector[key] = shuffle(bySector[key]);
+  }
+
+  const sectorCount: Record<string, number> = {};
+  const result: any[] = [];
+
+  while (result.length < nbRestant) {
+    let added = false;
+    for (const sector in bySector) {
+      if (result.length >= nbRestant) break;
+      const count = sectorCount[sector] ?? 0;
+      if (count >= maxPerSector) continue;
+      if (bySector[sector].length === 0) continue;
+      result.push(bySector[sector].shift()!);
+      sectorCount[sector] = count + 1;
+      added = true;
+    }
+    if (!added) break;
+  }
+
+  if (result.length < nbRestant) {
+    const selectedIds = new Set(result.map(p => String(p.id)));
+    const fallback = shuffle(eligible.filter(p => !selectedIds.has(String(p.id))));
+    for (const p of fallback.slice(0, nbRestant - result.length)) {
+      const sector = p.secteur_activite ?? "NC";
+      result.push(p);
+      sectorCount[sector] = (sectorCount[sector] ?? 0) + 1;
+    }
+  }
+
+  console.log('[BATCH4] Répartition secteurs:', sectorCount);
+  return result;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -324,8 +390,8 @@ export async function POST(req: NextRequest) {
         ? remainingExtraction
         : Math.min(maxBatchCount, remainingExtraction);
 
-      const batchEligible = filterFn(raw)
-        .filter(p => !collectedIds.has(String(p.id)));
+      const availableProspects = raw.filter(p => !collectedIds.has(String(p.id)));
+      const batchEligible = filterFn(availableProspects);
       const batchResult = batchEligible.slice(0, remainingBatch);
 
       await checkpointEligiblePage(batchResult);
@@ -353,9 +419,11 @@ export async function POST(req: NextRequest) {
       }
 
       if (collected.length < nb) {
-        const batch4 = applyBatch4(page)
-          .filter(p => !collectedIds.has(String(p.id)))
-          .slice(0, nb - collected.length);
+        const batch4 = applyBatch4(
+          page.filter(p => !collectedIds.has(String(p.id))),
+          nb,
+          nb - collected.length
+        );
         await checkpointEligiblePage(batch4);
       }
     }
@@ -394,6 +462,7 @@ export async function POST(req: NextRequest) {
          phone_mobile,
          datemailling,
          datecommandendd,
+         secteur_activite,
          date_fin_contrat AS \`date-fin-contrat\`
        FROM sellsy_cache
        WHERE is_archived = 0
@@ -404,7 +473,7 @@ export async function POST(req: NextRequest) {
     await processRealBatch(1, 'priorité, sans limite', raw, prospects => applyBatch1(prospects, dateSortie));
     if (collected.length < nb) await processRealBatch(2, 'complément, limite 10', raw, applyBatch2, 10);
     if (collected.length < nb) await processRealBatch(3, 'complément, limite 10', raw, applyBatch3, 10);
-    if (collected.length < nb) await processRealBatch(4, 'complément, sans limite', raw, applyBatch4);
+    if (collected.length < nb) await processRealBatch(4, 'complément, sans limite', raw, prospects => applyBatch4(prospects, nb, nb - collected.length));
 
     console.log(`\n========== RÉSULTAT FINAL ==========`);
     console.log(`  Prospects sélectionnés : ${collected.length}/${nb}`);
