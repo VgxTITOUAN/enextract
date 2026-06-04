@@ -27,9 +27,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, error: 'Impossible de modifier votre propre compte.' }, { status: 400 });
       }
 
-      await pool.execute('UPDATE users SET active = 1 - active WHERE id = ?', [user_id]);
+      await pool.execute('UPDATE users SET active = 1 - active WHERE id = ? AND deleted_at IS NULL', [user_id]);
 
-      const [rows]: any = await pool.execute('SELECT name, active FROM users WHERE id = ?', [user_id]);
+      const [rows]: any = await pool.execute('SELECT name, active FROM users WHERE id = ? AND deleted_at IS NULL', [user_id]);
       const updated = rows[0];
 
       return NextResponse.json({
@@ -46,9 +46,9 @@ export async function POST(req: NextRequest) {
       }
 
       const hash = await bcrypt.hash(new_password, 12);
-      await pool.execute('UPDATE users SET password = ? WHERE id = ?', [hash, user_id]);
+      await pool.execute('UPDATE users SET password = ? WHERE id = ? AND deleted_at IS NULL', [hash, user_id]);
 
-      const [rows]: any = await pool.execute('SELECT name FROM users WHERE id = ?', [user_id]);
+      const [rows]: any = await pool.execute('SELECT name FROM users WHERE id = ? AND deleted_at IS NULL', [user_id]);
 
       return NextResponse.json({ success: true, name: rows[0].name });
     }
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Vérifier que l'email n'existe pas
-      const [existing]: any = await pool.execute('SELECT id FROM users WHERE email = ?', [email]);
+      const [existing]: any = await pool.execute('SELECT id FROM users WHERE email = ? AND deleted_at IS NULL', [email]);
       if (existing.length > 0) {
         return NextResponse.json({ success: false, error: 'Cet email est déjà utilisé.' }, { status: 400 });
       }
@@ -100,6 +100,60 @@ export async function POST(req: NextRequest) {
 
   } catch (error: any) {
     console.error('Users API error:', error);
+    return NextResponse.json({ success: false, error: 'Erreur serveur.' }, { status: 500 });
+  }
+}
+
+
+export async function DELETE(req: NextRequest) {
+  try {
+    // Auth
+    const cookieStore = await cookies();
+    const token = cookieStore.get('enextract_token')?.value;
+    if (!token) return NextResponse.json({ success: false, error: 'Non autorisé.' }, { status: 401 });
+
+    const user = verifyToken(token);
+    if (!user) return NextResponse.json({ success: false, error: 'Non autorisé.' }, { status: 401 });
+
+    // Admin uniquement
+    if (user.role !== 'admin') {
+      return NextResponse.json({ success: false, error: 'Accès refusé.' }, { status: 403 });
+    }
+
+    const { id } = await req.json();
+    if (!id) {
+      return NextResponse.json({ success: false, error: 'Utilisateur invalide.' }, { status: 400 });
+    }
+
+    if (Number(id) === user.id) {
+      return NextResponse.json({ success: false, error: 'Impossible de supprimer votre propre compte.' }, { status: 400 });
+    }
+
+    const [targetRows]: any = await pool.execute(
+      'SELECT id, role FROM users WHERE id = ? AND deleted_at IS NULL',
+      [id]
+    );
+    const target = targetRows[0];
+    if (!target) {
+      return NextResponse.json({ success: false, error: 'Utilisateur introuvable.' }, { status: 404 });
+    }
+
+    if (target.role === 'admin') {
+      const [adminRows]: any = await pool.execute(
+        'SELECT COUNT(*) AS total FROM users WHERE role = ? AND deleted_at IS NULL',
+        ['admin']
+      );
+      if (adminRows[0].total <= 1) {
+        return NextResponse.json({ success: false, error: 'Impossible de supprimer le dernier admin.' }, { status: 400 });
+      }
+    }
+
+    await pool.execute('UPDATE users SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL', [id]);
+
+    return NextResponse.json({ success: true });
+
+  } catch (error: any) {
+    console.error('Users API delete error:', error);
     return NextResponse.json({ success: false, error: 'Erreur serveur.' }, { status: 500 });
   }
 }
