@@ -57,7 +57,7 @@ export async function GET(
           p.zip_code            ?? '',
           p.city                ?? '',
           p.website             ?? '',
-          '',
+          p.secteur_activite    ?? '',
           p.email               ?? '',
           p.phone               ?? '',
           p.phone_mobile        ?? '',

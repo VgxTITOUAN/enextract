@@ -127,9 +127,9 @@ async function saveExtraction(
     await pool.execute(
       `INSERT INTO extraction_prospects
        (extraction_id, sellsy_id, company_name, website, address, city, zip_code,
-        contact_name, email, phone, phone_mobile,
-        date_mailing_before, date_mailing_after, sellsy_updated)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        secteur_activite, contact_name, email, phone, phone_mobile,
+        date_mailing_before, date_mailing_after, date_fin_contrat, date_commande_ndd, sellsy_updated)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         extractionId,
         String(prospect.id),
@@ -138,12 +138,15 @@ async function saveExtraction(
         prospect.address          ?? null,
         prospect.city             ?? null,
         prospect.zip_code         ?? null,
+        prospect.secteur_activite ?? null,
         prospect.contact_name     ?? null,
         prospect.email            ?? null,
         prospect.phone            ?? null,
         prospect.phone_mobile     ?? null,
         prospect[CF_DATE_MAILING] ?? null,
         sellsyOk ? today          : null,
+        prospect[CF_DATE_FIN_CONTRAT]  ?? null,
+        prospect[CF_DATE_COMMANDE_NOM] ?? null,
         sellsyOk ? 1              : 0,
       ]
     );
@@ -197,6 +200,7 @@ async function runScheduledExtraction(schedule: any) {
              phone_mobile,
              datemailling,
              datecommandendd,
+             secteur_activite,
              date_fin_contrat AS \`date-fin-contrat\`
            FROM sellsy_cache
            WHERE is_archived = 0

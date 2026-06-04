@@ -113,6 +113,7 @@ mysql -h $DB_HOST -u $DB_USER -p $DB_NAME < sql/migrations/add_deleted_at_users.
 | Fichier | Description |
 |---------|-------------|
 | `add_deleted_at_users.sql` | Ajoute `deleted_at` sur `users` (suppression logique) |
+| `add_csv_fields_extraction_prospects.sql` | Ajoute `secteur_activite`, `date_fin_contrat`, `date_commande_ndd` sur `extraction_prospects` (export CSV) |
 
 > La création initiale des tables (`users`, `extractions`, etc.) doit déjà exister sur l’environnement cible. Ce dépôt ne contient pas de dump complet du schéma initial.
 
