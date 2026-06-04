@@ -1,6 +1,6 @@
 # EneXtract
 
-Application web interne pour **e-Ness** (Quimper) : extraction automatisée de prospects depuis **Sellsy**, génération de CSV pour les campagnes mailing, planifications et historique des extractions.
+
 
 **Production :** [https://enextract.eness.fr](https://enextract.eness.fr)
 
@@ -30,7 +30,7 @@ Application web interne pour **e-Ness** (Quimper) : extraction automatisée de p
 ## Démarrage rapide
 
 ```bash
-git clone https://github.com/titouvgx/enextract.git
+git clone https://github.com/VgxTITOUAN/enextract.git
 cd enextract
 npm install
 ```
