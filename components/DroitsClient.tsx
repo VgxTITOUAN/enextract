@@ -15,6 +15,7 @@ type User = {
 interface Props {
   users: User[];
   currentUserId: number;
+  currentUserRole: string;
 }
 
 function fmtDate(s: string | null) {
@@ -22,11 +23,12 @@ function fmtDate(s: string | null) {
   return new Date(s).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-export default function DroitsClient({ users: initialUsers, currentUserId }: Props) {
+export default function DroitsClient({ users: initialUsers, currentUserId, currentUserRole }: Props) {
   const [users, setUsers] = useState<User[]>(initialUsers);
   const [loadingId, setLoadingId] = useState<number | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showReset, setShowReset] = useState<{ id: number; name: string } | null>(null);
+  const [showDelete, setShowDelete] = useState<{ id: number; name: string } | null>(null);
   const [newPassword, setNewPassword] = useState('');
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'commercial' });
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -122,6 +124,27 @@ export default function DroitsClient({ users: initialUsers, currentUserId }: Pro
     }
   }
 
+  async function deleteUser() {
+    if (!showDelete) return;
+    setLoadingId(showDelete.id);
+    try {
+      const res = await fetch('/api/users', {
+        method:  'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ id: showDelete.id }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.error, false); return; }
+      setUsers(prev => prev.filter(u => u.id !== showDelete.id));
+      showToast(`${showDelete.name} a été supprimé.`);
+      setShowDelete(null);
+    } catch {
+      showToast('Erreur réseau.', false);
+    } finally {
+      setLoadingId(null);
+    }
+  }
+
   const UserCard = ({ u }: { u: User }) => {
     const isSelf    = u.id === currentUserId;
     const isActive  = u.active === 1;
@@ -173,6 +196,15 @@ export default function DroitsClient({ users: initialUsers, currentUserId }: Pro
             >
               🔑
             </button>
+            {currentUserRole === 'admin' && (
+              <button
+                onClick={() => setShowDelete({ id: u.id, name: u.name })}
+                disabled={loadingId === u.id}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors disabled:opacity-50"
+              >
+                Supprimer
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -339,6 +371,36 @@ export default function DroitsClient({ users: initialUsers, currentUserId }: Pro
                 style={{ backgroundColor: '#6bb100' }}
               >
                 Réinitialiser
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal suppression */}
+      {showDelete && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-sm overflow-hidden">
+            <div className="px-5 pt-5 pb-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-gray-800">Supprimer — {showDelete.name}</h3>
+              <button onClick={() => setShowDelete(null)} className="text-gray-400 hover:text-gray-600 text-lg">×</button>
+            </div>
+            <div className="px-5 py-4">
+              <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700">
+                Supprimer définitivement {showDelete.name} ? Cette action est irréversible.
+                L'historique de ses extractions sera conservé.
+              </div>
+            </div>
+            <div className="px-5 pb-5 flex gap-2">
+              <button onClick={() => setShowDelete(null)} className="flex-1 py-2 text-sm text-gray-500 border border-gray-300 rounded-lg hover:bg-gray-50">
+                Annuler
+              </button>
+              <button
+                onClick={deleteUser}
+                disabled={loadingId === showDelete.id}
+                className="flex-1 py-2 text-sm font-semibold text-white rounded-lg disabled:bg-gray-300 bg-red-600 hover:bg-red-700"
+              >
+                Supprimer définitivement
               </button>
             </div>
           </div>

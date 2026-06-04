@@ -214,7 +214,7 @@ git push origin main
 
 # 2. Attendre que le CI GitHub Actions soit vert ✅
 
-# 3. Sur le serveur via console SSH Infomaniak
+# 3. Sur le serveur via console SSH Infomaniak pour pull main du github car pas de possiblité de faire une automatisation pour l'instant
 cd /srv/customer/sites/enextract.eness.fr
 git stash
 git pull origin main

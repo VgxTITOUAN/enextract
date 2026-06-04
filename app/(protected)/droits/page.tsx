@@ -18,6 +18,7 @@ export default async function DroitsPage() {
   const [users]: any = await pool.execute(
     `SELECT id, email, name, role, active, derniere_connexion, created_at
      FROM users
+     WHERE deleted_at IS NULL
      ORDER BY role DESC, name ASC`
   );
 
@@ -25,7 +26,7 @@ export default async function DroitsPage() {
     <>
       <Topbar title="Droits d'accès" userName={user.name} />
       <main className="p-6">
-        <DroitsClient users={users} currentUserId={user.id} />
+        <DroitsClient users={users} currentUserId={user.id} currentUserRole={user.role} />
       </main>
     </>
   );

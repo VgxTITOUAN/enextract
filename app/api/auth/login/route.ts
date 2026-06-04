@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
 
     // Récupérer l'utilisateur en base
     const [rows]: any = await pool.execute(
-      'SELECT id, email, password, name, role, active FROM users WHERE email = ? LIMIT 1',
+      'SELECT id, email, password, name, role, active FROM users WHERE email = ? AND deleted_at IS NULL LIMIT 1',
       [email]
     );
 
