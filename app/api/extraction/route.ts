@@ -4,6 +4,16 @@ import type { RowDataPacket } from 'mysql2';
 import { verifyToken } from '@/lib/auth';
 import pool from '@/lib/db';
 import { updateProspect } from '@/lib/sellsy';
+import {
+  BATCH1_MIN_YEARS,
+  BATCH2_MAX_MONTHS,
+  BATCH2_MAX_PROSPECTS,
+  BATCH3_MAX_MONTHS,
+  BATCH3_MAX_PROSPECTS,
+  BATCH4_SECTOR_CAP_PERCENT,
+  BATCH4_EXCLUDED_SECTORS,
+  BATCH4_UNKNOWN_SECTORS,
+} from '@/config/batches';
 
 // ─────────────────────────────────────────────────────────────
 //  MOCK MODE — passer à false quand Sellsy est connecté
@@ -18,19 +28,9 @@ const CF_DATE_MAILING      = 'datemailling';
 const CF_DATE_COMMANDE_NOM = 'datecommandendd';
 const CF_DATE_FIN_CONTRAT  = 'date-fin-contrat';
 const CF_DEPARTEMENT       = 'zip_code';
-const EXCLUDED_SECTORS_BATCH4 = [
-  "Bar / Café",
-  "Cave à vins",
-  "Coaching",
-  "Coursier",
-  "École",
-  "Élevage animaux",
-  "Mairie",
-  "Podologue",
-  "Relooking",
-  "Tatoueur",
-  "Thérapeute",
-];
+// BATCH2_MAX_MONTHS et BATCH3_MAX_MONTHS n'ont pas de valeur hardcodée équivalente dans ce fichier.
+void BATCH2_MAX_MONTHS;
+void BATCH3_MAX_MONTHS;
 
 type SellsyCacheProspect = RowDataPacket & {
   id: string | number;
@@ -109,7 +109,7 @@ function shuffle<T>(arr: T[]): T[] {
 //  FILTRES MÉTIER
 // ─────────────────────────────────────────────────────────────
 function applyBatch1(prospects: any[], dateSortie: Date): any[] {
-  const limite        = subMonths(dateSortie, 30);
+  const limite        = subMonths(dateSortie, BATCH1_MIN_YEARS * 12);
   const limiteMailing = subYears(dateSortie, 2);
 
   const result = prospects.filter(p => {
@@ -157,7 +157,7 @@ function applyBatch3(prospects: any[]): any[] {
 function applyBatch4(prospects: any[], nbTotal: number, nbRestant: number): any[] {
   const limite2000    = new Date('2000-01-01');
   const limiteMailing = subYears(new Date(), 2);
-  const maxPerSector = Math.ceil(nbTotal * 0.07);
+  const maxPerSector = Math.ceil(nbTotal * BATCH4_SECTOR_CAP_PERCENT);
 
   const eligible = prospects.filter(p => {
     if (!(p[CF_DEPARTEMENT] ?? '').startsWith('29')) return false;
@@ -167,13 +167,13 @@ function applyBatch4(prospects: any[], nbTotal: number, nbRestant: number): any[
     if (isUnknown(dm)) return false;
     const d = new Date(dm);
     if (d < limite2000 || d > limiteMailing) return false;
-    if (EXCLUDED_SECTORS_BATCH4.includes(p.secteur_activite)) return false;
+    if (BATCH4_EXCLUDED_SECTORS.includes(p.secteur_activite)) return false;
     return true;
   });
 
   const bySector: Record<string, any[]> = {};
   for (const p of eligible) {
-    const key = p.secteur_activite ?? "NC";
+    const key = p.secteur_activite ?? BATCH4_UNKNOWN_SECTORS[0];
     bySector[key] = bySector[key] ?? [];
     bySector[key].push(p);
   }
@@ -203,7 +203,7 @@ function applyBatch4(prospects: any[], nbTotal: number, nbRestant: number): any[
     const selectedIds = new Set(result.map(p => String(p.id)));
     const fallback = shuffle(eligible.filter(p => !selectedIds.has(String(p.id))));
     for (const p of fallback.slice(0, nbRestant - result.length)) {
-      const sector = p.secteur_activite ?? "NC";
+      const sector = p.secteur_activite ?? BATCH4_UNKNOWN_SECTORS[0];
       result.push(p);
       sectorCount[sector] = (sectorCount[sector] ?? 0) + 1;
     }
@@ -407,14 +407,14 @@ export async function POST(req: NextRequest) {
       if (collected.length < nb) {
         const batch2 = applyBatch2(page)
           .filter(p => !collectedIds.has(String(p.id)))
-          .slice(0, Math.min(10, nb - collected.length));
+          .slice(0, Math.min(BATCH2_MAX_PROSPECTS, nb - collected.length));
         await checkpointEligiblePage(batch2);
       }
 
       if (collected.length < nb) {
         const batch3 = applyBatch3(page)
           .filter(p => !collectedIds.has(String(p.id)))
-          .slice(0, Math.min(10, nb - collected.length));
+          .slice(0, Math.min(BATCH3_MAX_PROSPECTS, nb - collected.length));
         await checkpointEligiblePage(batch3);
       }
 
@@ -471,8 +471,8 @@ export async function POST(req: NextRequest) {
     const raw = rawRows ?? [];
 
     await processRealBatch(1, 'priorité, sans limite', raw, prospects => applyBatch1(prospects, dateSortie));
-    if (collected.length < nb) await processRealBatch(2, 'complément, limite 10', raw, applyBatch2, 10);
-    if (collected.length < nb) await processRealBatch(3, 'complément, limite 10', raw, applyBatch3, 10);
+    if (collected.length < nb) await processRealBatch(2, 'complément, limite 10', raw, applyBatch2, BATCH2_MAX_PROSPECTS);
+    if (collected.length < nb) await processRealBatch(3, 'complément, limite 10', raw, applyBatch3, BATCH3_MAX_PROSPECTS);
     if (collected.length < nb) await processRealBatch(4, 'complément, sans limite', raw, prospects => applyBatch4(prospects, nb, nb - collected.length));
 
     console.log(`\n========== RÉSULTAT FINAL ==========`);
