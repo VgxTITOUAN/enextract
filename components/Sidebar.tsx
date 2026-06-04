@@ -1,6 +1,7 @@
+'use client';
+
 import Link from 'next/link';
-import { cookies } from 'next/headers';
-import { verifyToken } from '@/lib/auth';
+import { usePathname } from 'next/navigation';
 import LogoutButton from '@/components/LogoutButton';
 
 const navItems = [
@@ -19,7 +20,9 @@ interface SidebarProps {
   currentPath: string;
 }
 
-export default function Sidebar({ userName, userRole, currentPath }: SidebarProps) {
+export default function Sidebar({ userName, userRole }: SidebarProps) {
+  const pathname = usePathname();
+
   return (
     <aside className="w-56 min-h-screen bg-white border-r border-gray-200 flex flex-col">
 
@@ -45,8 +48,8 @@ export default function Sidebar({ userName, userRole, currentPath }: SidebarProp
               <Link
                 href={item.href}
                 className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors border-l-2 ${
-                  currentPath === item.href
-                    ? 'border-[#6bb100] bg-green-50 text-[#4a7c00]'
+                  pathname === item.href
+                    ? 'border-[#6bb100] bg-green-50 text-[#4a7c00] font-semibold'
                     : 'border-transparent text-gray-500 hover:bg-gray-100 hover:text-gray-700'
                 }`}
               >
@@ -68,8 +71,8 @@ export default function Sidebar({ userName, userRole, currentPath }: SidebarProp
                   <Link
                     href={item.href}
                     className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors border-l-2 ${
-                      currentPath === item.href
-                        ? 'border-[#6bb100] bg-green-50 text-[#4a7c00]'
+                      pathname === item.href
+                        ? 'border-[#6bb100] bg-green-50 text-[#4a7c00] font-semibold'
                         : 'border-transparent text-gray-500 hover:bg-gray-100 hover:text-gray-700'
                     }`}
                   >
