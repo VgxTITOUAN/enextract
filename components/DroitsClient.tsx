@@ -34,6 +34,8 @@ export default function DroitsClient({ users: initialUsers, currentUserId, curre
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
   const [syncStatus, setSyncStatus]   = useState<{ total: number; last_sync: string | null; is_empty: boolean } | null>(null);
   const [syncing, setSyncing]         = useState(false);
+  const [deployStatus, setDeployStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
+  const [deployLogs, setDeployLogs]     = useState('');
 
   const admins      = users.filter(u => u.role === 'admin');
   const commerciaux = users.filter(u => u.role === 'commercial');
@@ -49,6 +51,69 @@ export default function DroitsClient({ users: initialUsers, currentUserId, curre
       const data = await res.json();
       if (res.ok) setSyncStatus(data);
     } catch {}
+  }
+
+  async function lancerDeploy() {
+    if (!confirm('Lancer la mise à jour de l\'application ? (git pull + build + redémarrage)')) return;
+    setDeployStatus('running');
+    setDeployLogs('');
+
+    try {
+      const res = await fetch('/api/deploy', { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setDeployLogs(prev => prev + `\n❌ ${data.error ?? 'Accès refusé.'}\n`);
+        setDeployStatus('error');
+        return;
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) {
+        setDeployStatus('error');
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let failed = false;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const blocks = buffer.split('\n\n');
+        buffer = blocks.pop() ?? '';
+
+        for (const block of blocks) {
+          const eventLine = block.match(/^event: (\w+)/m)?.[1];
+          const dataLine  = block.match(/^data: (.+)$/m)?.[1];
+          if (!eventLine || !dataLine) continue;
+
+          const data = JSON.parse(dataLine);
+          if (eventLine === 'log' && data.line) {
+            setDeployLogs(prev => prev + data.line);
+          }
+          if (eventLine === 'error') {
+            setDeployLogs(prev => prev + `\n❌ ${data.message}\n`);
+            setDeployStatus('error');
+            failed = true;
+            break;
+          }
+          if (eventLine === 'done') {
+            setDeployStatus('success');
+          }
+        }
+        if (failed) break;
+      }
+
+      if (!failed) {
+        setDeployStatus(prev => (prev === 'running' ? 'success' : prev));
+      }
+    } catch {
+      setDeployLogs(prev => prev + '\n❌ Erreur réseau.\n');
+      setDeployStatus('error');
+    }
   }
 
   async function lancerSync() {
@@ -243,6 +308,56 @@ export default function DroitsClient({ users: initialUsers, currentUserId, curre
           </div>
         )}
       </div>
+
+      {/* Déploiement — admin seulement */}
+      {currentUserRole === 'admin' && (
+        <div className="bg-white border border-gray-200 rounded-xl p-4 mb-5 shadow-sm">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <p className="text-sm font-bold text-gray-800">🚀 Déploiement</p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                git pull → npm install & build → redémarrage Infomaniak
+              </p>
+            </div>
+            <button
+              onClick={lancerDeploy}
+              disabled={deployStatus === 'running'}
+              className="px-4 py-2 text-sm font-semibold text-white rounded-lg disabled:opacity-50 transition-colors"
+              style={{
+                backgroundColor:
+                  deployStatus === 'error'   ? '#e03131'
+                  : deployStatus === 'success' ? '#4a7c00'
+                  : deployStatus === 'running' ? '#adb5bd'
+                  : '#6bb100',
+              }}
+            >
+              {deployStatus === 'running'  && '⏳ Mise à jour en cours...'}
+              {deployStatus === 'success'  && '✅ Terminé'}
+              {deployStatus === 'error'    && '❌ Erreur'}
+              {deployStatus === 'idle'     && '🚀 Mettre à jour l\'application'}
+            </button>
+          </div>
+
+          {deployStatus === 'success' && (
+            <p className="mt-3 text-xs font-semibold text-green-700">
+              ✅ Mise à jour terminée — l&apos;application redémarre
+            </p>
+          )}
+          {deployStatus === 'error' && (
+            <p className="mt-3 text-xs font-semibold text-red-600">
+              ❌ Erreur — voir les logs
+            </p>
+          )}
+
+          {(deployStatus === 'running' || deployLogs) && (
+            <pre
+              className="mt-3 max-h-64 overflow-y-auto rounded-lg bg-gray-900 text-green-400 text-xs p-3 font-mono whitespace-pre-wrap"
+            >
+              {deployLogs || 'Démarrage...'}
+            </pre>
+          )}
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
