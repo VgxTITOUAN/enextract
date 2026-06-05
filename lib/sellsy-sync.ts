@@ -4,6 +4,7 @@ import { notifyAdmins } from '@/lib/notifications';
 
 const SECTEUR_ACTIVITE_MAP: Record<string, string> = {
   "3223393": "N/C",
+  "3223394": "Institut de beauté",
   "3483135": "Cabinet infirmier",
   "3483136": "Coiffeur",
   "3484189": "Élevage animaux",
@@ -26,6 +27,7 @@ const SECTEUR_ACTIVITE_MAP: Record<string, string> = {
   "3519937": "Loisirs",
   "3519936": "Ostréiculture",
   "3482485": "Magasin de vêtement",
+  "3482486": "Transporteur",
   "3479860": "Garage",
   "3482484": "Géomètre",
   "3482483": "Fleuriste",
