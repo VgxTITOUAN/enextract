@@ -1,6 +1,6 @@
 # EneXtract
 
-
+Application web interne e-Ness pour extraire des prospects depuis Sellsy, appliquer les règles métier (4 batchs), mettre à jour le champ `datemailling` et exporter un CSV.
 
 **Production :** [https://enextract.eness.fr](https://enextract.eness.fr)
 
@@ -100,6 +100,7 @@ Ne jamais committer `.env.local` ni de secrets dans le dépôt.
 | `extraction_prospects` | Détail des prospects par extraction |
 | `schedules` | Extractions planifiées et récurrentes |
 | `sellsy_cache` | Cache local des prospects Sellsy |
+| `notifications` | Notifications internes par utilisateur |
 
 ### Migrations
 
@@ -113,9 +114,9 @@ mysql -h $DB_HOST -u $DB_USER -p $DB_NAME < sql/migrations/add_deleted_at_users.
 | Fichier | Description |
 |---------|-------------|
 | `add_deleted_at_users.sql` | Ajoute `deleted_at` sur `users` (suppression logique) |
-| `add_csv_fields_extraction_prospects.sql` | Ajoute `secteur_activite`, `date_fin_contrat`, `date_commande_ndd` sur `extraction_prospects` (export CSV) |
+| `add_csv_fields_extraction_prospects.sql` | Ajoute `secteur_activite`, `date_fin_contrat`, `date_commande_ndd` sur `extraction_prospects` |
 
-> La création initiale des tables (`users`, `extractions`, etc.) doit déjà exister sur l’environnement cible. Ce dépôt ne contient pas de dump complet du schéma initial.
+> La création initiale des tables doit déjà exister sur l'environnement cible. Ce dépôt ne contient pas de dump complet du schéma initial.
 
 ---
 
@@ -140,28 +141,29 @@ npm start
 
 ```
 app/
-├── (protected)/                 # Pages authentifiées
+├── (protected)/                      # Pages authentifiées
 │   ├── layout.tsx
 │   ├── error.tsx
 │   ├── extraction/
 │   ├── planification/
 │   ├── telechargement/
-│   └── droits/                  # Admin uniquement
+│   ├── notifications/
+│   └── droits/                       # Admin uniquement
 ├── api/
 │   ├── auth/login/route.ts
-│   ├── auth/logout.ts/route.ts
+│   ├── auth/logout/route.ts
+│   ├── deploy/route.ts               # Déploiement admin (git pull + build + restart)
 │   ├── extraction/route.ts
+│   ├── notifications/route.ts        # GET + PATCH (marquer lu)
+│   ├── notifications/[id]/read/route.ts
 │   ├── planification/route.ts
-│   ├── sellsy-sync/route.ts     # Statut + sync manuelle
+│   ├── sellsy-sync/route.ts
 │   ├── sellsy-sync/cron/route.ts
-│   ├── sellsy-test/route.ts     # Debug Sellsy (à désactiver en prod si besoin)
+│   ├── sellsy-test/route.ts          # Debug Sellsy — restreindre ou désactiver en prod
 │   ├── telechargement/[id]/route.ts
-│   └── users/route.ts           # POST admin + DELETE soft delete
-├── login/page.tsx
-├── error.tsx
-└── not-found.tsx
+│   └── users/route.ts
 components/
-├── ErrorDisplay.tsx             # UI erreurs partagée
+├── ErrorDisplay.tsx
 ├── Sidebar.tsx
 ├── Topbar.tsx
 ├── DroitsClient.tsx
@@ -170,17 +172,20 @@ components/
 ├── Toast.tsx
 └── LogoutButton.tsx
 config/
-└── batches.ts                   # Constantes métier des 4 batchs
+└── batches.ts                        # Constantes métier des 4 batchs
 lib/
 ├── auth.ts
 ├── db.ts
+├── extraction/
+│   └── batches.ts                    # Logique des 4 filtres batch (source unique)
+├── notifications.ts                  # createNotification, notifyAdmins
 ├── sellsy.ts
 ├── sellsy-sync.ts
 ├── scheduler.ts
 └── useToast.ts
 sql/migrations/
-proxy.ts                         # Protection des routes
-instrumentation.ts               # Démarrage du scheduler au boot
+proxy.ts                              # Protection des routes
+instrumentation.ts                    # Démarrage scheduler au boot
 .github/workflows/ci.yml
 ```
 
@@ -190,55 +195,48 @@ instrumentation.ts               # Démarrage du scheduler au boot
 
 | Page | Rôle | Accès |
 |------|------|-------|
-| Extraction | Lancer une extraction immédiate ou planifiée | Tous les utilisateurs actifs |
-| Planification | Voir / gérer les planifications | Tous |
-| Téléchargement | Historique et export CSV | Tous |
-| Droits d'accès | Utilisateurs, sync Sellsy, reset MDP | **Admin** |
+| Extraction | Lancer une extraction immédiate, planifiée ou récurrente | Tous |
+| Planification | Voir et gérer les planifications actives | Tous |
+| Téléchargement | Historique des extractions et export CSV | Tous |
+| Notifications | Notifications internes (extractions, sync, erreurs) | Tous |
+| Droits d'accès | Utilisateurs, sync Sellsy, déploiement | **Admin** |
 
-**Admin** (`users.role = 'admin'`) : gestion des comptes, synchronisation du cache, correction de statuts d’extraction.
+**Admin** (`users.role = 'admin'`) : gestion des comptes, synchronisation du cache Sellsy, déploiement de l'application.
 
 **Commercial** : extraction, planification et téléchargement uniquement.
 
-Les utilisateurs supprimés (`deleted_at` renseigné) n’apparaissent plus dans les listes et ne peuvent plus se connecter. L’historique de leurs extractions est conservé.
+Les utilisateurs supprimés (`deleted_at` renseigné) ne peuvent plus se connecter. Leur token JWT est invalidé à la prochaine requête. L'historique de leurs extractions est conservé.
 
 ---
 
 ## Règles métier — 4 batchs
 
-Prospects **non archivés**, départements **29** ou **56** (selon le batch). Les constantes (délais, limites, secteurs exclus) sont dans `config/batches.ts`.
+Prospects **non archivés** depuis `sellsy_cache`. Les secteurs exclus (`BATCH4_EXCLUDED_SECTORS`) sont filtrés **en amont de tous les batchs** — ces prospects ne sont jamais sélectionnés. Les constantes (délais, limites, secteurs exclus) sont dans `config/batches.ts`. La logique de filtrage est centralisée dans `lib/extraction/batches.ts`.
 
 | Batch | Dépt. | Date commande NDD | Date fin contrat | Date mailing | Limite |
 |-------|-------|-------------------|------------------|--------------|--------|
 | **1 — Priorité** | 29 ou 56 | Connue, antérieure à 2,5 ans | Inconnue | Inconnue ou antérieure à 2 ans | Aucune |
 | **2** | 29 | Inconnue | Inconnue | Inconnue | 10 max |
 | **3** | 29 | Inconnue | Inconnue | Connue, avant le 01/01/2000 | 10 max |
-| **4 — Complétion** | 29 | Inconnue | Inconnue | Entre 01/01/2000 et il y a 2 ans | Selon quota restant |
+| **4 — Complétion** | 29 | Inconnue | Inconnue | Entre 01/01/2000 et il y a 2 ans | Quota restant |
 
-**Batch 4** : exclusion de certains secteurs d’activité, puis sélection en round-robin avec un plafond de **7 %** par secteur (cap calculé sur le nombre total demandé). Liste des secteurs exclus : `config/batches.ts` → `BATCH4_EXCLUDED_SECTORS`.
-
-Les extractions lisent le cache `sellsy_cache` (rapide). Hors `DRY_RUN`, le champ `datemailling` est mis à jour dans Sellsy et dans le cache.
+**Batch 4** : sélection en round-robin avec plafond de **7 %** par secteur (calculé sur le total demandé). Secteurs exclus : `config/batches.ts` → `BATCH4_EXCLUDED_SECTORS`.
 
 ---
 
 ## Cache Sellsy & synchronisation
 
-Les prospects sont synchronisés dans `sellsy_cache` (y compris `secteur_activite`, dates custom, coordonnées).
-
 | Mode | Déclencheur |
 |------|-------------|
 | Automatique | `node-cron` — tous les jours à **2h** (`lib/scheduler.ts`, fuseau `Europe/Paris`) |
 | Manuel | Page **Droits d'accès** → **Synchroniser Sellsy** |
-| HTTP (alternative) | `POST /api/sellsy-sync/cron` avec header `x-cron-secret` |
+| HTTP | `POST /api/sellsy-sync/cron` avec header `x-cron-secret` |
 
-La sync pagine l’API Sellsy (~100 prospects par page). La durée dépend du volume (souvent **20 à 40 minutes**). Ne pas fermer l’onglet pendant une sync manuelle lancée depuis l’UI.
-
-Les extractions immédiates et planifiées s’appuient sur le cache : pas d’appel Sellsy massif à chaque extraction.
+La sync dure généralement **20 à 40 minutes**. Ne pas fermer l'onglet pendant une sync manuelle.
 
 ---
 
 ## Quotas API Sellsy
-
-Gestion dans `lib/sellsy.ts` (headers de quota) :
 
 | Header | Seuil | Action |
 |--------|-------|--------|
@@ -258,29 +256,45 @@ const DRY_RUN   = true;  // true = pas de mise à jour datemailling dans Sellsy
 ```
 
 | Flag | Effet |
-|------|--------|
+|------|-------|
 | `MOCK_MODE` | Données de test, sans cache réel |
 | `DRY_RUN` | Extraction réelle depuis le cache, **sans** écriture Sellsy |
 
-Avant une mise en production avec écriture Sellsy : valider le comportement métier, puis passer `DRY_RUN = false` dans **les deux fichiers**.
+> Avant la mise en production avec écriture Sellsy : valider le comportement métier avec Rémi, puis passer `DRY_RUN = false` dans **les deux fichiers**.
 
 ---
 
 ## CI/CD
 
-Workflow `.github/workflows/ci.yml` sur chaque push / PR vers `main` :
+### CI — GitHub Actions
+
+Workflow `.github/workflows/ci.yml` déclenché sur chaque push / PR vers `main` :
 
 1. `npx tsc --noEmit`
 2. `npx eslint . --ext .ts,.tsx --max-warnings 999`
-3. `npm run build` (secrets GitHub pour les variables d’environnement)
+3. `npm run build`
 
-**Ne pas déployer si le CI est rouge.**
+**Ne pas merger si le CI est rouge.**
 
-Le job de déploiement SSH (CD) est préparé mais **commenté** : Infomaniak ne permet pas encore l’usage de clés SSH privées pour l’automatisation GitHub Actions sur l’offre mutualisée actuelle.
+### CD — Déploiement via l'interface admin
+
+Le déploiement se fait depuis la page **Droits d'accès** (admin uniquement) → section **Déploiement** → bouton **Mettre à jour l'application**.
+
+La séquence exécutée :
+
+```
+git pull origin main
+→ npm install && npm run build
+→ touch restart.txt  (redémarrage Infomaniak)
+```
+
+Les logs s'affichent en temps réel dans l'interface. Ne pas fermer l'onglet pendant le build (~2-3 minutes).
 
 ---
 
 ## Déploiement (Infomaniak)
+
+### Procédure standard
 
 ```bash
 # 1. Merger develop → main et pousser
@@ -289,21 +303,22 @@ git pull origin main
 git merge develop
 git push origin main
 
-# 2. Attendre le CI vert sur GitHub
+# 2. Attendre le CI vert sur GitHub Actions
 
-# 3. Sur le serveur (console SSH Infomaniak)
-cd /srv/customer/sites/enextract.eness.fr
-git stash
-git pull origin main
-
-# 4. Manager Infomaniak
-# → Lancer la construction (build)
-# → Redémarrer l’application Node.js
+# 3. Depuis la page Droits d'accès (admin)
+#    → Cliquer sur "Mettre à jour l'application"
+#    → Attendre la fin du build
 ```
 
-Appliquer les migrations SQL sur la base de production si de nouveaux fichiers existent dans `sql/migrations/`.
+### Migrations SQL
 
-Vérifier les flags `DRY_RUN` / `MOCK_MODE` avant redémarrage.
+Si de nouveaux fichiers existent dans `sql/migrations/`, les appliquer sur la base de production avant ou après le déploiement selon le cas.
+
+### Vérifications post-déploiement
+
+- Flags `DRY_RUN` / `MOCK_MODE` corrects
+- Cache Sellsy à jour (sync si nécessaire)
+- Page Notifications accessible
 
 ---
 
@@ -326,8 +341,6 @@ feature/* ← développement
 | `style:` | UI uniquement |
 | `ci:` | Pipeline CI/CD |
 | `docs:` | Documentation |
-
-Exemple de flux :
 
 ```bash
 git checkout develop
@@ -355,15 +368,15 @@ Le secteur est stocké en libellé dans `sellsy_cache.secteur_activite` (mapping
 ## Dépannage
 
 | Symptôme | Piste |
-|----------|--------|
+|----------|-------|
 | CI rouge au build | Vérifier les secrets GitHub (`DB_*`, `JWT_SECRET`, `SELLSY_*`) |
-| Erreur 503 à l’extraction | Quota journalier Sellsy presque épuisé |
-| Cache vide | Lancer une sync depuis Droits d'accès (admin) |
+| Erreur 503 à l'extraction | Quota journalier Sellsy presque épuisé |
+| Cache vide | Lancer une sync depuis Droits d'accès |
 | Extraction partielle | Stock insuffisant pour les critères des 4 batchs |
 | Login impossible | Compte inactif, supprimé (`deleted_at`) ou identifiants incorrects |
-| Cron sync ne tourne pas | Vérifier que l’app Node tourne en continu (`instrumentation.ts`) ou utiliser la route `/api/sellsy-sync/cron` |
-
-Pages d’erreur : composant partagé `components/ErrorDisplay.tsx` (boundaries `error.tsx` à la racine et sous `(protected)/`).
+| Cron sync ne tourne pas | Vérifier que l'app Node tourne en continu (`instrumentation.ts`) |
+| Build échoue sur `@tailwindcss/postcss` | Vérifier que `tailwindcss` et `@tailwindcss/postcss` sont dans `dependencies` (pas `devDependencies`) |
+| `next: not found` au démarrage | Relancer `npm install` depuis le terminal SSH |
 
 ---
 
