@@ -113,68 +113,47 @@ async function runScheduledExtraction(schedule: any) {
     const collected: any[] = [];
     const collectedIds = new Set<string>();
 
-    async function processSellsyBatch(
-      filterFn: (prospects: any[]) => any[],
-      maxBatchCount: number | null = null
+    const [rawRows]: any = await pool.execute(
+      `SELECT
+         sellsy_id AS id,
+         name,
+         website,
+         address,
+         city,
+         zip_code,
+         email,
+         phone,
+         phone_mobile,
+         datemailling,
+         datecommandendd,
+         secteur_activite,
+         date_fin_contrat AS \`date-fin-contrat\`
+       FROM sellsy_cache
+       WHERE is_archived = 0
+       ORDER BY sellsy_id`
+    );
+
+    const raw = (rawRows ?? []).filter(
+      (p: any) => !BATCH4_EXCLUDED_SECTORS.includes(p.secteur_activite ?? ''),
+    );
+
+    function processRealBatch(
+      batchFn: (prospects: any[]) => any[],
+      maxCount: number | null = null
     ) {
-      let page = 0;
-      let batchCount = 0;
-
-      while (true) {
-        const [rows]: any = await pool.execute(
-          `SELECT
-             sellsy_id AS id,
-             name,
-             website,
-             address,
-             city,
-             zip_code,
-             email,
-             phone,
-             phone_mobile,
-             datemailling,
-             datecommandendd,
-             secteur_activite,
-             date_fin_contrat AS \`date-fin-contrat\`
-           FROM sellsy_cache
-           WHERE is_archived = 0
-           ORDER BY sellsy_id
-           LIMIT 100 OFFSET ?`,
-          [page * 100]
-        );
-
-        const rawRows = rows ?? [];
-        const pageProspects = rawRows.filter(
-          (p: any) => !BATCH4_EXCLUDED_SECTORS.includes(p.secteur_activite ?? ''),
-        );
-
-        const remainingExtraction = nb - collected.length;
-        const remainingBatch = maxBatchCount === null
-          ? remainingExtraction
-          : Math.min(maxBatchCount - batchCount, remainingExtraction);
-
-        if (pageProspects.length > 0 && remainingExtraction > 0 && remainingBatch > 0) {
-          const eligible = filterFn(pageProspects)
-            .filter(p => !collectedIds.has(String(p.id)))
-            .slice(0, remainingBatch);
-
-          batchCount += eligible.length;
-          collected.push(...eligible);
-          eligible.forEach(p => collectedIds.add(String(p.id)));
-        }
-
-        if (collected.length >= nb) break;
-        if (maxBatchCount !== null && batchCount >= maxBatchCount) break;
-        if (rawRows.length < 100) break;
-        page++;
-      }
+      const remaining = nb - collected.length;
+      const limit = maxCount === null ? remaining : Math.min(maxCount, remaining);
+      const available = raw.filter((p: any) => !collectedIds.has(String(p.id)));
+      const eligible = batchFn(available).slice(0, limit);
+      collected.push(...eligible);
+      eligible.forEach(p => collectedIds.add(String(p.id)));
     }
 
-    await processSellsyBatch(page => applyBatch1(page, dateSortie));
-    if (collected.length < nb) await processSellsyBatch(applyBatch2, 10);
-    if (collected.length < nb) await processSellsyBatch(applyBatch3, 10);
+    processRealBatch(p => applyBatch1(p, dateSortie));
+    if (collected.length < nb) processRealBatch(applyBatch2, 10);
+    if (collected.length < nb) processRealBatch(applyBatch3, 10);
     if (collected.length < nb) {
-      await processSellsyBatch(page => applyBatch4(page, nb, nb - collected.length));
+      processRealBatch(p => applyBatch4(p, nb, nb - collected.length));
     }
 
     // MàJ Sellsy
