@@ -36,6 +36,7 @@ export default function DroitsClient({ users: initialUsers, currentUserId, curre
   const [syncing, setSyncing]         = useState(false);
   const [deployStatus, setDeployStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
   const [deployLogs, setDeployLogs]     = useState('');
+  const [deployLogsOpen, setDeployLogsOpen] = useState(false);
 
   const admins      = users.filter(u => u.role === 'admin');
   const commerciaux = users.filter(u => u.role === 'commercial');
@@ -57,6 +58,7 @@ export default function DroitsClient({ users: initialUsers, currentUserId, curre
     if (!confirm('Lancer la mise à jour de l\'application ? (git pull + build + redémarrage)')) return;
     setDeployStatus('running');
     setDeployLogs('');
+    setDeployLogsOpen(true);
 
     try {
       const res = await fetch('/api/deploy', { method: 'POST' });
@@ -349,9 +351,19 @@ export default function DroitsClient({ users: initialUsers, currentUserId, curre
             </p>
           )}
 
-          {(deployStatus === 'running' || deployLogs) && (
+          {deployStatus !== 'idle' && deployStatus !== 'running' && deployLogs.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setDeployLogsOpen(open => !open)}
+              className="mt-3 text-xs font-semibold text-gray-500 hover:text-gray-700"
+            >
+              {deployLogsOpen ? 'Masquer les logs' : 'Voir les logs'}
+            </button>
+          )}
+
+          {(deployStatus === 'running' || (deployLogsOpen && deployLogs.length > 0)) && (
             <pre
-              className="mt-3 max-h-64 overflow-y-auto rounded-lg bg-gray-900 text-green-400 text-xs p-3 font-mono whitespace-pre-wrap"
+              className="mt-2 max-h-64 overflow-y-auto rounded-lg bg-gray-900 text-green-400 text-xs p-3 font-mono whitespace-pre-wrap"
             >
               {deployLogs || 'Démarrage...'}
             </pre>
