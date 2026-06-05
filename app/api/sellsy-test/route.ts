@@ -1,7 +1,18 @@
 import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import { verifyToken } from '@/lib/auth';
 import { getSellsyToken } from '@/lib/sellsy';
 
 export async function GET() {
+  const cookieStore = await cookies();
+  const authToken = cookieStore.get('enextract_token')?.value;
+  if (!authToken) return NextResponse.json({ error: 'Non autorisé.' }, { status: 401 });
+
+  const user = verifyToken(authToken);
+  if (!user || user.role !== 'admin') {
+    return NextResponse.json({ error: 'Non autorisé.' }, { status: 401 });
+  }
+
   const token = await getSellsyToken();
 
   // Récupérer les options du champ select secteuractivite (id 47599)
