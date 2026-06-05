@@ -32,12 +32,6 @@ export default async function TelechargementPage() {
     isAdmin ? [] : [user.id]
   );
 
-  // KPIs
-  const total     = rows.length;
-  const prospects = rows.reduce((s: number, r: any) => s + (r.nb_sortie || 0), 0);
-  const maj       = rows.reduce((s: number, r: any) => s + (r.nb_maj_sellsy || 0), 0);
-  const derniere  = rows[0]?.date_lancement ?? null;
-
   // Prochaine extraction planifiée
   const [planned]: any = await pool.execute(
     `SELECT s.date_lancement, s.nb_prospects, u.name AS user_name
@@ -54,7 +48,6 @@ export default async function TelechargementPage() {
       <main className="p-6">
         <TelechargementClient
           extractions={rows}
-          kpis={{ total, prospects, maj, derniere }}
           prochaine={planned[0] ?? null}
           isAdmin={isAdmin}
         />

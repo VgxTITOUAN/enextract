@@ -29,13 +29,6 @@ type Prospect = {
   sellsy_updated:      number;
 };
 
-type Kpis = {
-  total: number;
-  prospects: number;
-  maj: number;
-  derniere: string | null;
-};
-
 type Prochaine = {
   date_lancement: string;
   nb_prospects: number;
@@ -44,7 +37,6 @@ type Prochaine = {
 
 interface Props {
   extractions: Extraction[];
-  kpis: Kpis;
   prochaine: Prochaine;
   isAdmin: boolean;
 }
@@ -87,9 +79,39 @@ function fmtDate(s: string | null) {
   return new Date(s).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-export default function TelechargementClient({ extractions, kpis, prochaine, isAdmin }: Props) {
+type PeriodFilter = 'all' | 'today' | 'week';
+type TypeFilter = 'all' | 'immediate' | 'planifiee' | 'recurrente';
+
+function startOfDay(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function startOfWeek(d: Date) {
+  const day = d.getDay();
+  const diff = (day === 0 ? -6 : 1) - day;
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + diff);
+  return startOfDay(monday);
+}
+
+function isToday(dateStr: string) {
+  const d = new Date(dateStr);
+  return startOfDay(d).getTime() === startOfDay(new Date()).getTime();
+}
+
+function isThisWeek(dateStr: string) {
+  const d = new Date(dateStr);
+  const weekStart = startOfWeek(new Date());
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekEnd.getDate() + 7);
+  return d >= weekStart && d < weekEnd;
+}
+
+export default function TelechargementClient({ extractions, prochaine, isAdmin }: Props) {
   const currentYear = new Date().getFullYear();
   const [activeYear, setActiveYear] = useState<number | 'all'>(currentYear);
+  const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('all');
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [search, setSearch] = useState('');
   const [detail, setDetail] = useState<{ extraction: Extraction; prospects: Prospect[] } | null>(null);
   const [loadingDetail, setLoadingDetail] = useState<number | null>(null);
@@ -104,9 +126,19 @@ export default function TelechargementClient({ extractions, kpis, prochaine, isA
   const filtered = extractionList.filter(e => {
     const year = new Date(e.created_at).getFullYear();
     if (activeYear !== 'all' && year !== activeYear) return false;
+    if (periodFilter === 'today' && !isToday(e.created_at)) return false;
+    if (periodFilter === 'week' && !isThisWeek(e.created_at)) return false;
+    if (typeFilter !== 'all' && e.type !== typeFilter) return false;
     if (search && !e.user_name.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
+
+  const filteredDerniere = filtered.length > 0
+    ? filtered.reduce((latest, e) =>
+        new Date(e.date_lancement) > new Date(latest) ? e.date_lancement : latest,
+        filtered[0].date_lancement
+      )
+    : null;
 
   function showToast(msg: string, ok = true) {
     setToast({ msg, ok });
@@ -174,7 +206,7 @@ export default function TelechargementClient({ extractions, kpis, prochaine, isA
           { label: 'Extractions', value: filtered.length },
           { label: 'Nb prospects sorties', value: filtered.reduce((s, e) => s + (e.nb_sortie || 0), 0) },
           { label: 'Sellsy MàJ', value: filtered.reduce((s, e) => s + (e.nb_maj_sellsy || 0), 0) },
-          { label: 'Dernière extraction', value: kpis.derniere ? fmtDate(kpis.derniere) : '—', small: true },
+          { label: 'Dernière extraction', value: filteredDerniere ? fmtDate(filteredDerniere) : '—', small: true },
         ].map(k => (
           <div key={k.label} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
             <p className="text-xs text-gray-400 mb-1">{k.label}</p>
@@ -185,37 +217,83 @@ export default function TelechargementClient({ extractions, kpis, prochaine, isA
 
       {/* Tableau */}
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex gap-1.5 flex-wrap">
-            <button
-              onClick={() => setActiveYear('all')}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
-                activeYear === 'all' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'
-              }`}
-            >
-              Tout
-            </button>
-            {years.map(y => (
+        <div className="px-4 py-3 border-b border-gray-100 flex flex-col gap-2.5">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex gap-1.5 flex-wrap items-center">
+              <span className="text-xs text-gray-400 font-medium mr-1">Année</span>
               <button
-                key={y}
-                onClick={() => setActiveYear(y)}
-                className="px-3 py-1 rounded-full text-xs font-semibold border transition-colors"
-                style={activeYear === y
-                  ? { backgroundColor: '#6bb100', borderColor: '#6bb100', color: 'white' }
-                  : { backgroundColor: 'white', color: '#6c757d', borderColor: '#dee2e6' }
-                }
+                onClick={() => setActiveYear('all')}
+                className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
+                  activeYear === 'all' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'
+                }`}
               >
-                {y}
+                Tout
               </button>
-            ))}
+              {years.map(y => (
+                <button
+                  key={y}
+                  onClick={() => setActiveYear(y)}
+                  className="px-3 py-1 rounded-full text-xs font-semibold border transition-colors"
+                  style={activeYear === y
+                    ? { backgroundColor: '#6bb100', borderColor: '#6bb100', color: 'white' }
+                    : { backgroundColor: 'white', color: '#6c757d', borderColor: '#dee2e6' }
+                  }
+                >
+                  {y}
+                </button>
+              ))}
+            </div>
+            <input
+              type="text"
+              placeholder="Rechercher un utilisateur..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="px-3 py-1.5 border border-gray-300 rounded-lg text-xs focus:outline-none focus:border-[#6bb100] w-44"
+            />
           </div>
-          <input
-            type="text"
-            placeholder="Rechercher..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="px-3 py-1.5 border border-gray-300 rounded-lg text-xs focus:outline-none focus:border-[#6bb100] w-40"
-          />
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex gap-1.5 flex-wrap items-center">
+              <span className="text-xs text-gray-400 font-medium mr-1">Période</span>
+              {([
+                { id: 'all',   label: 'Toutes' },
+                { id: 'today', label: "Aujourd'hui" },
+                { id: 'week',  label: 'Cette semaine' },
+              ] as const).map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => setPeriodFilter(p.id)}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
+                    periodFilter === p.id
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-1.5 flex-wrap items-center">
+              <span className="text-xs text-gray-400 font-medium mr-1">Type</span>
+              {([
+                { id: 'all',        label: 'Tous' },
+                { id: 'immediate',  label: '⚡ Immédiate' },
+                { id: 'planifiee',  label: '🕐 Planifiée' },
+                { id: 'recurrente', label: '🔄 Récurrente' },
+              ] as const).map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setTypeFilter(t.id)}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
+                    typeFilter === t.id
+                      ? 'bg-purple-600 text-white border-purple-600'
+                      : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
