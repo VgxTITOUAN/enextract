@@ -10,6 +10,7 @@ import pool from '@/lib/db';
 import { updateProspect } from '@/lib/sellsy';
 import { syncSellsyCache } from '@/lib/sellsy-sync';
 import { createNotification, notifyAdmins } from '@/lib/notifications';
+import { DRY_RUN } from '@/config/flags';
 import {
   applyBatch1,
   applyBatch2,
@@ -28,8 +29,6 @@ let initialized = false;
 function toDateStr(date: Date): string {
   return date.toISOString().split('T')[0];
 }
-
-const DRY_RUN = true;  // ← passer à false quand validé avec Rémi
 
 // ─────────────────────────────────────────────────────────────
 //  Sauvegarde extraction en BDD

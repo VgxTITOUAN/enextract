@@ -5,6 +5,7 @@ import { verifyToken } from '@/lib/auth';
 import pool from '@/lib/db';
 import { updateProspect } from '@/lib/sellsy';
 import { BATCH2_MAX_PROSPECTS, BATCH3_MAX_PROSPECTS } from '@/config/batches';
+import { DRY_RUN } from '@/config/flags';
 import {
   applyBatch1,
   applyBatch2,
@@ -20,7 +21,6 @@ import {
 //  MOCK MODE — passer à false quand Sellsy est connecté
 // ─────────────────────────────────────────────────────────────
 const MOCK_MODE = false;
-const DRY_RUN   = true;   // ← true = pas de modification dans Sellsy
 
 type SellsyCacheProspect = RowDataPacket & {
   id: string | number;
