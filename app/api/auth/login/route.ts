@@ -2,43 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import bcrypt from 'bcryptjs';
 import { signToken } from '@/lib/auth';
-
-// Rate limiting — max 5 tentatives par IP sur 15 minutes
-const loginAttempts = new Map<string, { count: number; resetAt: number }>();
-
-function checkRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const entry = loginAttempts.get(ip);
-
-  if (!entry || entry.resetAt < now) {
-    loginAttempts.set(ip, { count: 1, resetAt: now + 15 * 60 * 1000 });
-    return true; // OK
-  }
-
-  if (entry.count >= 5) {
-    return false; // Bloqué
-  }
-
-  entry.count++;
-  return true; // OK
-}
-
-function resetRateLimit(ip: string): void {
-  loginAttempts.delete(ip);
-}
+import { getClientIp, rateLimitKey, resetRateLimit } from '@/lib/rate-limit';
 
 export async function POST(req: NextRequest) {
   try {
-    const ip = req.headers.get('x-forwarded-for')
-      ?? req.headers.get('x-real-ip')
-      ?? 'unknown';
-
-    if (!checkRateLimit(ip)) {
-      return NextResponse.json(
-        { error: 'Trop de tentatives. Réessayez dans 15 minutes.' },
-        { status: 429 }
-      );
-    }
+    const ip = getClientIp(req);
 
     const { email, password } = await req.json();
 
@@ -81,7 +49,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    resetRateLimit(ip);
+    resetRateLimit(rateLimitKey('/api/auth/login', ip));
 
     // Mettre à jour derniere_connexion
     await pool.execute(
