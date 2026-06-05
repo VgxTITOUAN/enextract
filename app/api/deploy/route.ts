@@ -56,6 +56,9 @@ export async function POST() {
       };
 
       try {
+        send('log', { line: `APP_ROOT: ${APP_ROOT}\n` });
+        send('log', { line: `process.cwd(): ${process.cwd()}\n` });
+
         for (const step of STEPS) {
           send('log', { line: `\n▶ ${step.label}...\n` });
           try {
