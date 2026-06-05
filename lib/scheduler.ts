@@ -143,7 +143,8 @@ async function runScheduledExtraction(schedule: any) {
           [page * 100]
         );
 
-        const pageProspects = (rows ?? []).filter(
+        const rawRows = rows ?? [];
+        const pageProspects = rawRows.filter(
           (p: any) => !BATCH4_EXCLUDED_SECTORS.includes(p.secteur_activite ?? ''),
         );
 
@@ -164,7 +165,7 @@ async function runScheduledExtraction(schedule: any) {
 
         if (collected.length >= nb) break;
         if (maxBatchCount !== null && batchCount >= maxBatchCount) break;
-        if (pageProspects.length < 100) break;
+        if (rawRows.length < 100) break;
         page++;
       }
     }
