@@ -8,7 +8,6 @@ const APP_ROOT = process.env.DEPLOY_APP_ROOT ?? process.cwd();
 const STEPS = [
   { label: 'git pull', command: 'git pull' },
   { label: 'npm install && npm run build', command: 'npm install && npm run build' },
-  { label: 'restart', command: `touch ${RESTART_FILE}` },
 ];
 
 function runCommand(command: string, cwd: string, onOutput: (chunk: string) => void): Promise<void> {
@@ -71,12 +70,18 @@ export async function POST() {
             return;
           }
         }
+
+        send('log', { line: '\n▶ restart...\n' });
         send('done', {});
+        controller.close();
+
+        setTimeout(() => {
+          spawn(`touch ${RESTART_FILE}`, { shell: true });
+        }, 500);
       } catch (err: any) {
         send('error', { message: err.message ?? 'Erreur inattendue.' });
+        controller.close();
       }
-
-      controller.close();
     },
   });
 
