@@ -4,7 +4,7 @@ import type { RowDataPacket } from 'mysql2';
 import { verifyToken } from '@/lib/auth';
 import pool from '@/lib/db';
 import { updateProspect } from '@/lib/sellsy';
-import { BATCH2_MAX_PROSPECTS, BATCH3_MAX_PROSPECTS } from '@/config/batches';
+import { BATCH2_MAX_PROSPECTS, BATCH3_MAX_PROSPECTS, BATCH4_EXCLUDED_SECTORS } from '@/config/batches';
 import { DRY_RUN } from '@/config/flags';
 import {
   applyBatch1,
@@ -326,7 +326,9 @@ export async function POST(req: NextRequest) {
        WHERE is_archived = 0
        ORDER BY sellsy_id`
     );
-    const raw = rawRows ?? [];
+    const raw = (rawRows ?? []).filter(
+      p => !BATCH4_EXCLUDED_SECTORS.includes(p.secteur_activite ?? ''),
+    );
 
     await processRealBatch(1, 'priorité, sans limite', raw, prospects => applyBatch1(prospects, dateSortie));
     if (collected.length < nb) await processRealBatch(2, 'complément, limite 10', raw, applyBatch2, BATCH2_MAX_PROSPECTS);

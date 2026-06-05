@@ -10,6 +10,7 @@ import pool from '@/lib/db';
 import { updateProspect } from '@/lib/sellsy';
 import { syncSellsyCache } from '@/lib/sellsy-sync';
 import { createNotification, notifyAdmins } from '@/lib/notifications';
+import { BATCH4_EXCLUDED_SECTORS } from '@/config/batches';
 import { DRY_RUN } from '@/config/flags';
 import {
   applyBatch1,
@@ -142,7 +143,9 @@ async function runScheduledExtraction(schedule: any) {
           [page * 100]
         );
 
-        const pageProspects = rows ?? [];
+        const pageProspects = (rows ?? []).filter(
+          (p: any) => !BATCH4_EXCLUDED_SECTORS.includes(p.secteur_activite ?? ''),
+        );
 
         const remainingExtraction = nb - collected.length;
         const remainingBatch = maxBatchCount === null
