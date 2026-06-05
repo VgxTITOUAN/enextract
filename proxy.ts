@@ -1,15 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken } from '@/lib/auth';
+import { redirectToLogin, unauthorizedResponse, verifyTokenActive } from '@/lib/auth';
 import { enforceRateLimit } from '@/lib/rate-limit';
 
 const PUBLIC_ROUTES = ['/login'];
+const PUBLIC_API_PREFIXES = ['/api/auth/login'];
 
-export function proxy(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   if (pathname.startsWith('/api/')) {
     const limited = enforceRateLimit(req);
     if (limited) return limited;
+
+    const isPublicApi = PUBLIC_API_PREFIXES.some(p => pathname.startsWith(p));
+    if (!isPublicApi) {
+      const token = req.cookies.get('enextract_token')?.value;
+      if (token) {
+        const payload = await verifyTokenActive(token);
+        if (!payload) return unauthorizedResponse();
+      }
+    }
+
     return NextResponse.next();
   }
 
@@ -24,13 +35,13 @@ export function proxy(req: NextRequest) {
   const token = req.cookies.get('enextract_token')?.value;
 
   if (!token) {
-    return NextResponse.redirect(new URL('/login', req.url));
+    return redirectToLogin(req);
   }
 
-  const payload = verifyToken(token);
+  const payload = await verifyTokenActive(token);
 
   if (!payload) {
-    return NextResponse.redirect(new URL('/login', req.url));
+    return redirectToLogin(req);
   }
 
   return NextResponse.next();
