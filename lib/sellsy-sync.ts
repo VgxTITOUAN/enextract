@@ -1,5 +1,6 @@
 import pool from '@/lib/db';
 import { getProspectsEnriched } from '@/lib/sellsy';
+import { notifyAdmins } from '@/lib/notifications';
 
 const SECTEUR_ACTIVITE_MAP: Record<string, string> = {
   "3223393": "N/C",
@@ -101,13 +102,14 @@ function formatPhone(phone: string | null): string | null {
   return phone; // retourner tel quel si format inconnu
 }
 
-export async function syncSellsyCache(): Promise<void> {
+export async function syncSellsyCache(): Promise<number> {
   console.log('[SYNC] Démarrage synchronisation cache Sellsy');
 
   let cursor: string | null = null;
   let pageNum = 0;
   let total = 0;
 
+  try {
   do {
     try {
       // Délai de 500ms entre chaque page pour respecter les quotas
@@ -181,4 +183,21 @@ export async function syncSellsyCache(): Promise<void> {
   } while (cursor !== null);
 
   console.log(`[SYNC] Terminé — ${total} prospects synchronisés en ${pageNum} pages`);
+
+  await notifyAdmins({
+    message: `Sync Sellsy terminée — ${total} prospects mis à jour`,
+    type: 'success',
+    lienRedirection: '/droits',
+  }).catch(err => console.error('[SYNC] Notification admin:', err));
+
+  return total;
+
+  } catch (error) {
+    await notifyAdmins({
+      message: 'Échec de la synchronisation Sellsy',
+      type: 'error',
+      lienRedirection: '/droits',
+    }).catch(err => console.error('[SYNC] Notification erreur:', err));
+    throw error;
+  }
 }

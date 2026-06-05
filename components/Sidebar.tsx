@@ -1,7 +1,9 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { Bell } from 'lucide-react';
 import LogoutButton from '@/components/LogoutButton';
 
 const navItems = [
@@ -22,6 +24,14 @@ interface SidebarProps {
 
 export default function Sidebar({ userName, userRole }: SidebarProps) {
   const pathname = usePathname();
+  const [hasUnread, setHasUnread] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/notifications')
+      .then(res => res.json())
+      .then(data => setHasUnread((data.unreadCount ?? 0) > 0))
+      .catch(() => {});
+  }, [pathname]);
 
   return (
     <aside className="w-56 min-h-screen bg-white border-r border-gray-200 flex flex-col">
@@ -58,6 +68,23 @@ export default function Sidebar({ userName, userRole }: SidebarProps) {
               </Link>
             </li>
           ))}
+
+          <li>
+            <Link
+              href="/notifications"
+              className={`relative flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors border-l-2 ${
+                pathname === '/notifications'
+                  ? 'border-[#6bb100] bg-green-50 text-[#4a7c00] font-semibold'
+                  : 'border-transparent text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+              }`}
+            >
+              <Bell className="w-4 h-4" />
+              Notifications
+              {hasUnread && (
+                <span className="absolute top-2 left-7 w-2 h-2 rounded-full bg-red-500" />
+              )}
+            </Link>
+          </li>
 
           {userRole === 'admin' && (
             <>

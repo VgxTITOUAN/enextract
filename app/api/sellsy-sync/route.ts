@@ -34,8 +34,8 @@ export async function POST() {
       return NextResponse.json({ error: 'Accès refusé — admin uniquement.' }, { status: 403 });
     }
 
-    await syncSellsyCache();
-    return NextResponse.json({ success: true });
+    const totalInserted = await syncSellsyCache();
+    return NextResponse.json({ success: true, totalInserted });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }

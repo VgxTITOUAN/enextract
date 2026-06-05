@@ -13,6 +13,7 @@
     "dotenv": "^17.4.2",
     "eslint-config-next": "16.2.6",
     "jsonwebtoken": "^9.0.3",
+    "lucide-react": "^1.17.0",
     "mysql2": "^3.22.3",
     "next": "16.2.6",
     "node-cron": "^4.2.1",

@@ -9,6 +9,7 @@ import cron from 'node-cron';
 import pool from '@/lib/db';
 import { updateProspect } from '@/lib/sellsy';
 import { syncSellsyCache } from '@/lib/sellsy-sync';
+import { createNotification, notifyAdmins } from '@/lib/notifications';
 
 let initialized = false;
 
@@ -274,6 +275,18 @@ async function runScheduledExtraction(schedule: any) {
 
     console.log(`[CRON] Extraction #${extractionId} terminée — ${collected.length}/${nb} prospects — ${status}`);
 
+    const typeLabel = type === 'planifiee' ? 'planifiée' : type === 'recurrente' ? 'récurrente' : type;
+    const notifType = status === 'done' ? 'success' as const
+      : status === 'partial' ? 'warning' as const
+      : 'error' as const;
+
+    await createNotification({
+      userId: user_id,
+      message: `Extraction ${typeLabel} terminée — ${collected.length}/${nb} prospects exportés`,
+      type: notifType,
+      lienRedirection: '/telechargement',
+    }).catch(err => console.error('[CRON] Notification extraction:', err));
+
   } catch (err) {
     console.error(`[CRON] Erreur extraction schedule #${scheduleId} :`, err);
     await pool.execute(
@@ -281,6 +294,12 @@ async function runScheduledExtraction(schedule: any) {
        VALUES (?, ?, ?, ?, ?, 0, 'error')`,
       [user_id, scheduleId, type, dateLancement, nb]
     ).catch(() => {});
+
+    await notifyAdmins({
+      message: `Erreur critique — extraction ${type} #${scheduleId} (${nb} prospects demandés)`,
+      type: 'error',
+      lienRedirection: '/telechargement',
+    }).catch(nErr => console.error('[CRON] Notification admin:', nErr));
   }
 }
 
