@@ -10,6 +10,15 @@ import pool from '@/lib/db';
 import { updateProspect } from '@/lib/sellsy';
 import { syncSellsyCache } from '@/lib/sellsy-sync';
 import { createNotification, notifyAdmins } from '@/lib/notifications';
+import {
+  applyBatch1,
+  applyBatch2,
+  applyBatch3,
+  applyBatch4,
+  CF_DATE_COMMANDE_NOM,
+  CF_DATE_FIN_CONTRAT,
+  CF_DATE_MAILING,
+} from '@/lib/extraction/batches';
 
 let initialized = false;
 
@@ -20,83 +29,7 @@ function toDateStr(date: Date): string {
   return date.toISOString().split('T')[0];
 }
 
-function isUnknown(val: any): boolean {
-  return val === null || val === undefined || val === '' || val === '0000-00-00';
-}
-
-function subYears(date: Date, years: number): Date {
-  const d = new Date(date);
-  d.setFullYear(d.getFullYear() - years);
-  return d;
-}
-
-function subMonths(date: Date, months: number): Date {
-  const d = new Date(date);
-  d.setMonth(d.getMonth() - months);
-  return d;
-}
-
-// ─────────────────────────────────────────────────────────────
-//  Filtres métier (identiques à route.ts)
-// ─────────────────────────────────────────────────────────────
-const CF_DATE_MAILING      = 'datemailling';
-const CF_DATE_COMMANDE_NOM = 'datecommandendd';
-const CF_DATE_FIN_CONTRAT  = 'date-fin-contrat';
-const CF_DEPARTEMENT       = 'zip_code';
-const DRY_RUN              = true;  // ← passer à false quand validé avec Rémi
-
-function applyBatch1(prospects: any[], dateSortie: Date): any[] {
-  const limite        = subMonths(dateSortie, 30);
-  const limiteMailing = subYears(dateSortie, 2);
-  return prospects.filter(p => {
-    const dept = p[CF_DEPARTEMENT] ?? '';
-    if (!dept.startsWith('29') && !dept.startsWith('56')) return false;
-    const dateCommande = p[CF_DATE_COMMANDE_NOM];
-    if (!isUnknown(dateCommande) && new Date(dateCommande) > limite) return false;
-    if (!isUnknown(p[CF_DATE_FIN_CONTRAT])) return false;
-    const dateMailing = p[CF_DATE_MAILING];
-    if (!isUnknown(dateMailing) && new Date(dateMailing) > limiteMailing) return false;
-    return true;
-  });
-}
-
-function applyBatch2(prospects: any[]): any[] {
-  return prospects.filter(p => {
-    if (!(p[CF_DEPARTEMENT] ?? '').startsWith('29')) return false;
-    if (!isUnknown(p[CF_DATE_COMMANDE_NOM])) return false;
-    if (!isUnknown(p[CF_DATE_FIN_CONTRAT]))  return false;
-    if (!isUnknown(p[CF_DATE_MAILING]))       return false;
-    return true;
-  });
-}
-
-function applyBatch3(prospects: any[]): any[] {
-  const limite2000 = new Date('2000-01-01');
-  return prospects.filter(p => {
-    if (!(p[CF_DEPARTEMENT] ?? '').startsWith('29')) return false;
-    if (!isUnknown(p[CF_DATE_COMMANDE_NOM])) return false;
-    if (!isUnknown(p[CF_DATE_FIN_CONTRAT]))  return false;
-    const dm = p[CF_DATE_MAILING];
-    if (isUnknown(dm)) return false;
-    if (new Date(dm) >= limite2000) return false;
-    return true;
-  });
-}
-
-function applyBatch4(prospects: any[]): any[] {
-  const limite2000    = new Date('2000-01-01');
-  const limiteMailing = subYears(new Date(), 2);
-  return prospects.filter(p => {
-    if (!(p[CF_DEPARTEMENT] ?? '').startsWith('29')) return false;
-    if (!isUnknown(p[CF_DATE_COMMANDE_NOM])) return false;
-    if (!isUnknown(p[CF_DATE_FIN_CONTRAT]))  return false;
-    const dm = p[CF_DATE_MAILING];
-    if (isUnknown(dm)) return false;
-    const d = new Date(dm);
-    if (d < limite2000 || d > limiteMailing) return false;
-    return true;
-  });
-}
+const DRY_RUN = true;  // ← passer à false quand validé avec Rémi
 
 // ─────────────────────────────────────────────────────────────
 //  Sauvegarde extraction en BDD
@@ -237,7 +170,9 @@ async function runScheduledExtraction(schedule: any) {
     await processSellsyBatch(page => applyBatch1(page, dateSortie));
     if (collected.length < nb) await processSellsyBatch(applyBatch2, 10);
     if (collected.length < nb) await processSellsyBatch(applyBatch3, 10);
-    if (collected.length < nb) await processSellsyBatch(applyBatch4);
+    if (collected.length < nb) {
+      await processSellsyBatch(page => applyBatch4(page, nb, nb - collected.length));
+    }
 
     // MàJ Sellsy
     const sellsyUpdates: boolean[] = [];
